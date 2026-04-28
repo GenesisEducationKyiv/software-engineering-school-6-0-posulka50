@@ -1,0 +1,15 @@
+# Binaries
+/server
+*.exe
+
+# Environment
+.env
+
+# Go
+vendor/
+
+# IDE
+.idea/
+
+# Claude Code
+.claude/

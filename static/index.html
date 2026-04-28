@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitHub Release Notifier</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 460px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .logo svg { width: 32px; height: 32px; fill: #e6edf3; }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e6edf3;
+    }
+
+    p.subtitle {
+      color: #8b949e;
+      font-size: 14px;
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #c9d1d9;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 18px;
+    }
+
+    input:focus { border-color: #58a6ff; }
+    input::placeholder { color: #484f58; }
+
+    button {
+      width: 100%;
+      padding: 11px;
+      background: #238636;
+      border: 1px solid #2ea043;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #2ea043; }
+    button:disabled { background: #21262d; border-color: #30363d; color: #484f58; cursor: not-allowed; }
+
+    .message {
+      margin-top: 18px;
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      display: none;
+    }
+
+    .message.success { background: #0f2b0f; border: 1px solid #238636; color: #3fb950; display: block; }
+    .message.error   { background: #2d0f0f; border: 1px solid #da3633; color: #f85149; display: block; }
+
+    .confirmed-icon {
+      width: 56px;
+      height: 56px;
+      background: #0f2b0f;
+      border: 1px solid #238636;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+    }
+
+    .confirmed-icon svg {
+      width: 28px;
+      height: 28px;
+      fill: none;
+      stroke: #3fb950;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .confirmed-title {
+      font-size: 20px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .confirmed-text {
+      color: #8b949e;
+      font-size: 14px;
+      text-align: center;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    .back-link {
+      display: block;
+      text-align: center;
+      color: #58a6ff;
+      font-size: 13px;
+      text-decoration: none;
+    }
+
+    .back-link:hover { text-decoration: underline; }
+
+    .text-link {
+      background: none;
+      border: none;
+      color: #58a6ff;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+      width: auto;
+      text-align: center;
+      display: block;
+      margin: 16px auto 0;
+    }
+
+    .text-link:hover { text-decoration: underline; background: none; }
+
+    .subs-list {
+      list-style: none;
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subs-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #e6edf3;
+    }
+
+    .subs-list li svg {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      fill: #8b949e;
+    }
+
+    .subs-list .repo-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .subs-list .repo-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .badge-confirmed {
+      background: #0f2b0f;
+      border: 1px solid #238636;
+      color: #3fb950;
+    }
+
+    .badge-pending {
+      background: #2d2000;
+      border: 1px solid #bb8009;
+      color: #d29922;
+    }
+
+    .release-tag {
+      font-size: 11px;
+      color: #58a6ff;
+    }
+
+    .release-tag-none {
+      font-size: 11px;
+      color: #484f58;
+    }
+
+    .subs-empty {
+      margin-top: 20px;
+      text-align: center;
+      color: #8b949e;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card" id="subscribe-view">
+    <div class="logo">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+          0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+          -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+          .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+          -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+          .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+          .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+          0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      <h1>Release Notifier</h1>
+    </div>
+
+    <p class="subtitle">
+      Get an email whenever a new release drops on any public GitHub repository.
+    </p>
+
+    <form id="form">
+      <label for="repo">Repository</label>
+      <input id="repo" name="repo" type="text" placeholder="e.g. golang/go" required />
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="you@example.com" required />
+
+      <button type="submit" id="btn">Subscribe</button>
+    </form>
+
+    <div id="msg" class="message"></div>
+    <button class="text-link" onclick="showView('my-subs-view')">View my subscriptions →</button>
+  </div>
+
+  <div class="card" id="my-subs-view" style="display:none;">
+    <div class="logo">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+          0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+          -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+          .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+          -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+          .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+          .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+          0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      <h1>My Subscriptions</h1>
+    </div>
+
+    <form id="subs-form">
+      <label for="subs-email">Email</label>
+      <input id="subs-email" type="email" placeholder="you@example.com" required />
+      <button type="submit" id="subs-btn">Load</button>
+    </form>
+
+    <div id="subs-msg" class="message"></div>
+    <ul id="subs-list" class="subs-list" style="display:none;"></ul>
+    <p id="subs-empty" class="subs-empty" style="display:none;">No confirmed subscriptions found.</p>
+
+    <button class="text-link" onclick="showView('subscribe-view')">← Back to subscribe</button>
+  </div>
+
+  <div class="card" id="confirmed-view" style="display:none;">
+    <div class="confirmed-icon">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <div class="confirmed-title">You're subscribed!</div>
+    <p class="confirmed-text">Your email has been confirmed.<br>We'll notify you when a new release drops.</p>
+    <a class="back-link" href="/">Subscribe to another repository</a>
+  </div>
+
+  <script>
+    const views = ['subscribe-view', 'my-subs-view', 'confirmed-view'];
+
+    function showView(id) {
+      views.forEach(v => {
+        document.getElementById(v).style.display = v === id ? 'block' : 'none';
+      });
+    }
+
+    if (new URLSearchParams(location.search).get('confirmed') === '1') {
+      showView('confirmed-view');
+    }
+
+    // Subscriptions view
+    const subsForm  = document.getElementById('subs-form');
+    const subsBtn   = document.getElementById('subs-btn');
+    const subsMsg   = document.getElementById('subs-msg');
+    const subsList  = document.getElementById('subs-list');
+    const subsEmpty = document.getElementById('subs-empty');
+
+    subsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      subsBtn.disabled = true;
+      subsBtn.textContent = 'Loading…';
+      subsMsg.className = 'message';
+      subsList.style.display = 'none';
+      subsEmpty.style.display = 'none';
+
+      const email = document.getElementById('subs-email').value.trim();
+
+      try {
+        const res = await fetch(`/api/subscriptions?email=${encodeURIComponent(email)}`);
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          subsMsg.className = 'message error';
+          subsMsg.textContent = data.error || `Error ${res.status}`;
+        } else if (!data.length) {
+          subsEmpty.style.display = 'block';
+        } else {
+          subsList.innerHTML = data.map(s => `
+            <li>
+              <svg viewBox="0 0 16 16"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8z"/></svg>
+              <div class="repo-info">
+                <span>${s.repo}</span>
+                <div class="repo-meta">
+                  ${s.confirmed
+                    ? '<span class="badge badge-confirmed">Confirmed</span>'
+                    : '<span class="badge badge-pending">Pending</span>'}
+                  ${s.last_seen_tag
+                    ? `<span class="release-tag">${s.last_seen_tag}</span>`
+                    : '<span class="release-tag-none">no releases yet</span>'}
+                </div>
+              </div>
+            </li>`).join('');
+          subsList.style.display = 'flex';
+        }
+      } catch {
+        subsMsg.className = 'message error';
+        subsMsg.textContent = 'Network error. Please try again.';
+      } finally {
+        subsBtn.disabled = false;
+        subsBtn.textContent = 'Load';
+      }
+    });
+
+    const form = document.getElementById('form');
+    const btn  = document.getElementById('btn');
+    const msg  = document.getElementById('msg');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      btn.textContent = 'Subscribing…';
+      msg.className = 'message';
+      msg.textContent = '';
+
+      const body = JSON.stringify({
+        email: document.getElementById('email').value.trim(),
+        repo:  document.getElementById('repo').value.trim(),
+      });
+
+      try {
+        const res = await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          msg.className = 'message success';
+          msg.textContent = 'Check your inbox — a confirmation email is on its way!';
+          form.reset();
+        } else {
+          msg.className = 'message error';
+          msg.textContent = data.error || `Error ${res.status}`;
+        }
+      } catch {
+        msg.className = 'message error';
+        msg.textContent = 'Network error. Please try again.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Subscribe';
+      }
+    });
+  </script>
+</body>
+</html>
