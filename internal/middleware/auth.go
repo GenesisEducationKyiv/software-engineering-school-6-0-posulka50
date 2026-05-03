@@ -6,6 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// APIKeyAuth returns a Gin middleware that enforces X-API-Key header authentication.
+// If apiKey is empty, the middleware is a no-op and all requests are allowed.
 func APIKeyAuth(apiKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if apiKey == "" {

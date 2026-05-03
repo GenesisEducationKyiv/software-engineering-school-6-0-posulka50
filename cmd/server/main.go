@@ -37,8 +37,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	defer dbPool.Close()
-
 	if err := dbPool.Ping(context.Background()); err != nil {
 		log.Fatalf("database ping failed: %v", err)
 	}
@@ -48,6 +46,8 @@ func main() {
 		log.Fatalf("migrations failed: %v", err)
 	}
 	log.Println("migrations applied")
+
+	defer dbPool.Close()
 
 	var redisClient *redis.Client
 	if cfg.RedisURL != "" {
@@ -142,7 +142,15 @@ func runMigrations(databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
-	defer m.Close()
+	defer func() {
+		sourceErr, dbErr := m.Close()
+		if sourceErr != nil {
+			log.Printf("migrate close source error: %v", sourceErr)
+		}
+		if dbErr != nil {
+			log.Printf("migrate close db error: %v", dbErr)
+		}
+	}()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("apply migrations: %w", err)

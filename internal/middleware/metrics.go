@@ -8,6 +8,7 @@ import (
 	"github.com/posul/github-notifier/internal/metrics"
 )
 
+// Prometheus returns a Gin middleware that records HTTP request counts and latencies.
 func Prometheus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

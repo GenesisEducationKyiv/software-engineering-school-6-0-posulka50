@@ -12,10 +12,13 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("not found")
+	// ErrNotFound is returned when a requested subscription does not exist.
+	ErrNotFound = errors.New("not found")
+	// ErrAlreadyExists is returned when a duplicate subscription is detected.
 	ErrAlreadyExists = errors.New("already exists")
 )
 
+// SubscriptionRepository defines persistence operations for email subscriptions.
 type SubscriptionRepository interface {
 	Create(ctx context.Context, sub *model.Subscription) error
 	GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error)
@@ -27,10 +30,12 @@ type SubscriptionRepository interface {
 	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
 }
 
+// PostgresRepository is a PostgreSQL implementation of SubscriptionRepository.
 type PostgresRepository struct {
 	db *pgxpool.Pool
 }
 
+// NewPostgresRepository creates a new PostgresRepository backed by the given connection pool.
 func NewPostgresRepository(db *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
@@ -43,6 +48,7 @@ const subFromJoin = `
 	FROM subscriptions s
 	INNER JOIN repositories r ON r.id = s.repo_id`
 
+// Create inserts a new subscription record.
 func (r *PostgresRepository) Create(ctx context.Context, sub *model.Subscription) error {
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO subscriptions (id, repo_id, email, confirmed, confirm_token, unsubscribe_token, created_at)
@@ -59,6 +65,7 @@ func (r *PostgresRepository) Create(ctx context.Context, sub *model.Subscription
 	return nil
 }
 
+// GetByConfirmToken returns the subscription matching the given confirmation token.
 func (r *PostgresRepository) GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error) {
 	var sub model.Subscription
 	err := r.db.QueryRow(ctx,
@@ -75,6 +82,7 @@ func (r *PostgresRepository) GetByConfirmToken(ctx context.Context, token string
 	return &sub, nil
 }
 
+// GetByUnsubscribeToken returns the subscription matching the given unsubscribe token.
 func (r *PostgresRepository) GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error) {
 	var sub model.Subscription
 	err := r.db.QueryRow(ctx,
@@ -91,6 +99,7 @@ func (r *PostgresRepository) GetByUnsubscribeToken(ctx context.Context, token st
 	return &sub, nil
 }
 
+// GetByEmail returns all confirmed subscriptions for the given email address.
 func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
@@ -103,6 +112,7 @@ func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) ([]*m
 	return scanSubscriptions(rows)
 }
 
+// GetConfirmedByRepoID returns all confirmed subscriptions for the given repository ID.
 func (r *PostgresRepository) GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
@@ -115,6 +125,7 @@ func (r *PostgresRepository) GetConfirmedByRepoID(ctx context.Context, repoID st
 	return scanSubscriptions(rows)
 }
 
+// Confirm marks the subscription with the given id as confirmed.
 func (r *PostgresRepository) Confirm(ctx context.Context, id string) error {
 	result, err := r.db.Exec(ctx, `UPDATE subscriptions SET confirmed = true WHERE id = $1`, id)
 	if err != nil {
@@ -126,6 +137,7 @@ func (r *PostgresRepository) Confirm(ctx context.Context, id string) error {
 	return nil
 }
 
+// Delete removes the subscription with the given id.
 func (r *PostgresRepository) Delete(ctx context.Context, id string) error {
 	result, err := r.db.Exec(ctx, `DELETE FROM subscriptions WHERE id = $1`, id)
 	if err != nil {
@@ -137,6 +149,7 @@ func (r *PostgresRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ExistsByEmailAndRepoID reports whether a subscription exists for the given email and repository.
 func (r *PostgresRepository) ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx,

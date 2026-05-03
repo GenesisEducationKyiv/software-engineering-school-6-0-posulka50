@@ -14,13 +14,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	ErrNotFound  = errors.New("repository not found")
-	ErrRateLimit = errors.New("github api rate limit exceeded")
-)
+// ErrNotFound is returned when a repository does not exist on GitHub.
+var ErrNotFound = errors.New("repository not found")
+
+// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
+var ErrRateLimit = errors.New("github api rate limit exceeded")
 
 const cacheTTL = 10 * time.Minute
 
+// Release represents a GitHub repository release.
 type Release struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
@@ -29,20 +31,25 @@ type Release struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
+// RepoChecker checks whether a GitHub repository exists.
 type RepoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
+// ReleaseChecker fetches the latest release for a GitHub repository.
 type ReleaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error)
 }
 
+// Client is an HTTP client for the GitHub REST API with optional Redis caching.
 type Client struct {
 	httpClient *http.Client
 	token      string
 	redis      *redis.Client
 }
 
+// NewClient creates a new GitHub API client. If redisClient is non-nil it is used
+// to cache repository existence checks for cacheTTL.
 func NewClient(token string, redisClient *redis.Client) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -51,6 +58,7 @@ func NewClient(token string, redisClient *redis.Client) *Client {
 	}
 }
 
+// CheckRepo verifies that the given owner/repo exists on GitHub.
 func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
 
@@ -69,7 +77,7 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	switch resp.StatusCode {
@@ -94,6 +102,7 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	}
 }
 
+// GetLatestRelease returns the latest release for the given owner/repo.
 func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error) {
 	log.Printf("github: fetch latest release %s/%s", owner, repo)
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
@@ -101,7 +110,7 @@ func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Rel
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:

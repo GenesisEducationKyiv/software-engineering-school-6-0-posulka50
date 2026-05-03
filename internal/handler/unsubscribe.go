@@ -10,11 +10,12 @@ import (
 	"github.com/posul/github-notifier/internal/service"
 )
 
+// Unsubscribe handles GET /api/unsubscribe/:token and removes a subscription.
 func (h *Handler) Unsubscribe(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
 		log.Printf("unsubscribe: invalid token format: %s", token)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token"})
+		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: "invalid token"})
 		return
 	}
 
@@ -23,14 +24,14 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
 			log.Printf("unsubscribe: token not found: %s", token)
-			c.JSON(http.StatusNotFound, gin.H{"error": "token not found"})
+			c.JSON(http.StatusNotFound, gin.H{jsonKeyError: "token not found"})
 		default:
 			log.Printf("unsubscribe: internal error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			c.JSON(http.StatusInternalServerError, gin.H{jsonKeyError: msgInternalError})
 		}
 		return
 	}
 
 	log.Printf("unsubscribe: token %s removed", token)
-	c.JSON(http.StatusOK, gin.H{"message": "Unsubscribed successfully"})
+	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: "Unsubscribed successfully"})
 }

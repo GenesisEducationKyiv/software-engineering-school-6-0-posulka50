@@ -19,28 +19,36 @@ import (
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-]+$`)
 
 var (
-	ErrInvalidEmail  = errors.New("invalid email format")
-	ErrInvalidRepo   = errors.New("invalid repository format, expected owner/repo")
-	ErrRepoNotFound  = errors.New("repository not found on GitHub")
+	// ErrInvalidEmail is returned when the provided email address fails validation.
+	ErrInvalidEmail = errors.New("invalid email format")
+	// ErrInvalidRepo is returned when the repository name does not match owner/repo format.
+	ErrInvalidRepo = errors.New("invalid repository format, expected owner/repo")
+	// ErrRepoNotFound is returned when the repository does not exist on GitHub.
+	ErrRepoNotFound = errors.New("repository not found on GitHub")
+	// ErrAlreadyExists is returned when the email is already subscribed to the repository.
 	ErrAlreadyExists = errors.New("email already subscribed to this repository")
-	ErrNotFound      = errors.New("not found")
-	ErrRateLimit     = errors.New("GitHub API rate limit exceeded, try again later")
+	// ErrNotFound is returned when a subscription token cannot be found.
+	ErrNotFound = errors.New("not found")
+	// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
+	ErrRateLimit = errors.New("GitHub API rate limit exceeded, try again later")
 )
 
 type repoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
+// SubscriptionService handles the subscription lifecycle: subscribe, confirm, unsubscribe.
 type SubscriptionService struct {
-	repoRepo    repository.RepositoryRepository
+	repoRepo    repository.Repository
 	subRepo     repository.SubscriptionRepository
 	github      repoChecker
 	emailSender email.Notifier
 	baseURL     string
 }
 
+// NewSubscriptionService creates a new SubscriptionService with the given dependencies.
 func NewSubscriptionService(
-	repoRepo repository.RepositoryRepository,
+	repoRepo repository.Repository,
 	subRepo repository.SubscriptionRepository,
 	githubClient repoChecker,
 	emailSender email.Notifier,
@@ -55,6 +63,7 @@ func NewSubscriptionService(
 	}
 }
 
+// Subscribe validates the email and repo, creates a pending subscription, and sends a confirmation email.
 func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName string) error {
 	if !isValidEmail(emailAddr) {
 		return ErrInvalidEmail
@@ -121,6 +130,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName
 	return nil
 }
 
+// Confirm activates the subscription identified by the given confirmation token.
 func (s *SubscriptionService) Confirm(ctx context.Context, token string) error {
 	sub, err := s.subRepo.GetByConfirmToken(ctx, token)
 	if err != nil {
@@ -137,6 +147,7 @@ func (s *SubscriptionService) Confirm(ctx context.Context, token string) error {
 	return nil
 }
 
+// Unsubscribe removes the subscription identified by the given unsubscribe token.
 func (s *SubscriptionService) Unsubscribe(ctx context.Context, token string) error {
 	sub, err := s.subRepo.GetByUnsubscribeToken(ctx, token)
 	if err != nil {
@@ -153,6 +164,7 @@ func (s *SubscriptionService) Unsubscribe(ctx context.Context, token string) err
 	return nil
 }
 
+// GetSubscriptions returns all confirmed subscriptions for the given email address.
 func (s *SubscriptionService) GetSubscriptions(ctx context.Context, emailAddr string) ([]*model.Subscription, error) {
 	if !isValidEmail(emailAddr) {
 		return nil, ErrInvalidEmail
