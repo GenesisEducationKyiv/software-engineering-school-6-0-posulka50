@@ -30,7 +30,7 @@ func toResponse(s *model.Subscription) subscriptionResponse {
 func (h *Handler) GetSubscriptions(c *gin.Context) {
 	emailAddr := c.Query("email")
 	if emailAddr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: "email query parameter is required"})
+		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgEmailRequired})
 		return
 	}
 

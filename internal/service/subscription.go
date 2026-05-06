@@ -119,7 +119,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName
 	}
 
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, sub.ConfirmToken)
-	if err := s.emailSender.SendConfirmation(emailAddr, email.ConfirmData{
+	if err := s.emailSender.SendConfirmation(ctx, emailAddr, email.ConfirmData{
 		Repo:       repoName,
 		ConfirmURL: confirmURL,
 	}); err != nil {

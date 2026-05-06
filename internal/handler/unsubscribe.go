@@ -15,7 +15,7 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
 		log.Printf("unsubscribe: invalid token format: %s", token)
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: "invalid token"})
+		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgInvalidToken})
 		return
 	}
 
@@ -24,7 +24,7 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
 			log.Printf("unsubscribe: token not found: %s", token)
-			c.JSON(http.StatusNotFound, gin.H{jsonKeyError: "token not found"})
+			c.JSON(http.StatusNotFound, gin.H{jsonKeyError: msgTokenNotFound})
 		default:
 			log.Printf("unsubscribe: internal error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{jsonKeyError: msgInternalError})
@@ -33,5 +33,5 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 	}
 
 	log.Printf("unsubscribe: token %s removed", token)
-	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: "Unsubscribed successfully"})
+	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: msgUnsubscribeSuccess})
 }

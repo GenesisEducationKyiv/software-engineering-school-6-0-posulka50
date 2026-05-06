@@ -1,0 +1,8 @@
+{{define "content"}}
+  <p style="margin:0 0 8px;font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;font-weight:600;">New release · {{.Repo}}</p>
+  <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#e6edf3;">{{.TagName}}</h1>
+  {{if .ReleaseName}}<p style="margin:0 0 20px;font-size:16px;font-weight:600;color:#c9d1d9;">{{.ReleaseName}}</p>{{else}}<p style="margin:0 0 20px;"></p>{{end}}
+  {{if .Body}}<div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:16px;margin:0 0 24px;font-size:13px;color:#8b949e;line-height:1.7;white-space:pre-wrap;word-break:break-word;">{{.Body}}</div>{{end}}
+  <a href="{{.ReleaseURL}}" style="display:inline-block;background:#1f6feb;color:#fff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;border:1px solid #388bfd;">View Release on GitHub</a>
+{{end}}
+{{define "footer"}}<a href="{{.UnsubscribeURL}}" style="color:#484f58;">Unsubscribe</a> from {{.Repo}} release notifications.{{end}}

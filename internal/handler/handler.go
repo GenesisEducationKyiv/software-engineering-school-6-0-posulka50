@@ -5,9 +5,18 @@ import (
 )
 
 const (
-	jsonKeyError     = "error"
-	jsonKeyMessage   = "message"
-	msgInternalError = "internal server error"
+	jsonKeyError   = "error"
+	jsonKeyMessage = "message"
+
+	msgInternalError        = "internal server error"
+	msgInvalidToken         = "invalid token"
+	msgTokenNotFound        = "token not found"
+	msgInvalidRequestBody   = "invalid request body"
+	msgEmailAndRepoRequired = "email and repo are required"
+	msgEmailRequired        = "email query parameter is required"
+	msgSubscribeSuccess     = "Subscription successful. Confirmation email sent."
+	msgConfirmSuccess       = "Subscription confirmed successfully"
+	msgUnsubscribeSuccess   = "Unsubscribed successfully"
 )
 
 // Handler holds the HTTP handler methods for the subscription API.

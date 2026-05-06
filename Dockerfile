@@ -17,8 +17,6 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 COPY --from=builder /app/server .
-COPY migrations ./migrations
-COPY static ./static
 
 EXPOSE 8080
 

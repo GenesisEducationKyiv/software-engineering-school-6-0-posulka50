@@ -14,11 +14,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ErrNotFound is returned when a repository does not exist on GitHub.
-var ErrNotFound = errors.New("repository not found")
+var (
+	// ErrNotFound is returned when a repository does not exist on GitHub.
+	ErrNotFound = errors.New("repository not found")
 
-// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
-var ErrRateLimit = errors.New("github api rate limit exceeded")
+	// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
+	ErrRateLimit = errors.New("github api rate limit exceeded")
+)
 
 const cacheTTL = 10 * time.Minute
 
@@ -77,7 +79,11 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github: failed to close response body: %v", err)
+		}
+	}()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	switch resp.StatusCode {
@@ -110,7 +116,11 @@ func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Rel
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github: failed to close response body: %v", err)
+		}
+	}()
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:

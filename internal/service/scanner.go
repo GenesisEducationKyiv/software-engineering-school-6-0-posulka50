@@ -128,7 +128,11 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	log.Printf("scanner: %s — new release %s → %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
-	subs, err := s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
+	var (
+		subs []*model.Subscription
+		err  error
+	)
+	subs, err = s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
 		log.Printf("scanner: failed to fetch subscribers for %s: %v", repo.FullName, err)
 		return
@@ -136,7 +140,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	for _, sub := range subs {
 		unsubURL := fmt.Sprintf("%s/api/unsubscribe/%s", s.baseURL, sub.UnsubscribeToken)
-		err := s.emailSender.SendReleaseNotification(sub.Email, email.ReleaseData{
+		err = s.emailSender.SendReleaseNotification(ctx, sub.Email, email.ReleaseData{
 			Repo:           repo.FullName,
 			TagName:        release.TagName,
 			ReleaseName:    release.Name,

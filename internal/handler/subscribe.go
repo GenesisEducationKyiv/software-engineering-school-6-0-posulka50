@@ -16,7 +16,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		Repo  string `json:"repo"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: "invalid request body"})
+		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgInvalidRequestBody})
 		return
 	}
 
@@ -24,7 +24,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	repo := req.Repo
 
 	if email == "" || repo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: "email and repo are required"})
+		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgEmailAndRepoRequired})
 		return
 	}
 
@@ -54,5 +54,5 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	}
 
 	log.Printf("subscribe: confirmation email sent to %s for %s", email, repo)
-	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: "Subscription successful. Confirmation email sent."})
+	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: msgSubscribeSuccess})
 }
