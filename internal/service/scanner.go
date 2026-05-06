@@ -128,11 +128,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	log.Printf("scanner: %s — new release %s → %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
-	var (
-		subs []*model.Subscription
-		err  error
-	)
-	subs, err = s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
+	subs, err := s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
 		log.Printf("scanner: failed to fetch subscribers for %s: %v", repo.FullName, err)
 		return
