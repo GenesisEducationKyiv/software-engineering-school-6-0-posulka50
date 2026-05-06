@@ -1,9 +1,5 @@
 package handler
 
-import (
-	"github.com/posul/github-notifier/internal/service"
-)
-
 const (
 	jsonKeyError   = "error"
 	jsonKeyMessage = "message"
@@ -21,10 +17,10 @@ const (
 
 // Handler holds the HTTP handler methods for the subscription API.
 type Handler struct {
-	svc *service.SubscriptionService
+	svc Service
 }
 
-// New creates a new Handler with the given SubscriptionService.
-func New(svc *service.SubscriptionService) *Handler {
+// New creates a new Handler with the given Service.
+func New(svc Service) *Handler {
 	return &Handler{svc: svc}
 }
