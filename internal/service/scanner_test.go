@@ -25,9 +25,11 @@ type mockNotifier struct {
 	releaseErr    error
 }
 
-func (m *mockNotifier) SendConfirmation(_ string, _ email.ConfirmData) error { return nil }
+func (m *mockNotifier) SendConfirmation(_ context.Context, _ string, _ email.ConfirmData) error {
+	return nil
+}
 
-func (m *mockNotifier) SendReleaseNotification(to string, _ email.ReleaseData) error {
+func (m *mockNotifier) SendReleaseNotification(_ context.Context, to string, _ email.ReleaseData) error {
 	if m.releaseErr != nil {
 		return m.releaseErr
 	}

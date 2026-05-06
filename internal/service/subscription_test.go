@@ -159,12 +159,12 @@ type mockEmail struct {
 	confirmErr    error
 }
 
-func (m *mockEmail) SendConfirmation(_ string, _ email.ConfirmData) error {
+func (m *mockEmail) SendConfirmation(_ context.Context, _ string, _ email.ConfirmData) error {
 	m.confirmCalled = true
 	return m.confirmErr
 }
 
-func (m *mockEmail) SendReleaseNotification(_ string, _ email.ReleaseData) error {
+func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ email.ReleaseData) error {
 	return nil
 }
 
