@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/posul/github-notifier/internal/metrics"
-	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -22,7 +21,10 @@ var (
 	ErrRateLimit = errors.New("github api rate limit exceeded")
 )
 
-const cacheTTL = 10 * time.Minute
+// RepoChecker checks whether a GitHub repository exists.
+type RepoChecker interface {
+	CheckRepo(ctx context.Context, owner, repo string) error
+}
 
 // Release represents a GitHub repository release.
 type Release struct {
@@ -33,37 +35,22 @@ type Release struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
-// Client is an HTTP client for the GitHub REST API with optional Redis caching.
+// Client is a pure HTTP client for the GitHub REST API.
 type Client struct {
 	httpClient *http.Client
 	token      string
-	redis      *redis.Client
 }
 
-// NewClient creates a new GitHub API client. If redisClient is non-nil it is used
-// to cache repository existence checks for cacheTTL.
-func NewClient(token string, redisClient *redis.Client) *Client {
+// NewClient creates a new GitHub API client.
+func NewClient(token string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		token:      token,
-		redis:      redisClient,
 	}
 }
 
 // CheckRepo verifies that the given owner/repo exists on GitHub.
 func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
-	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
-
-	if c.redis != nil {
-		if cached, err := c.redis.Get(ctx, cacheKey).Result(); err == nil {
-			log.Printf("github: cache hit for repo %s/%s (%s)", owner, repo, cached)
-			if cached == "notfound" {
-				return ErrNotFound
-			}
-			return nil
-		}
-	}
-
 	log.Printf("github: check repo %s/%s", owner, repo)
 	resp, err := c.doRequest(ctx, fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo))
 	if err != nil {
@@ -78,15 +65,9 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if c.redis != nil {
-			c.redis.Set(ctx, cacheKey, "exists", cacheTTL)
-		}
 		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "ok").Inc()
 		return nil
 	case http.StatusNotFound:
-		if c.redis != nil {
-			c.redis.Set(ctx, cacheKey, "notfound", cacheTTL)
-		}
 		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "not_found").Inc()
 		return ErrNotFound
 	case http.StatusTooManyRequests:

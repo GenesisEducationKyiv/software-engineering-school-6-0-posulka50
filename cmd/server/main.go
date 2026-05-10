@@ -180,17 +180,22 @@ func newServer(port string, handler http.Handler) *http.Server {
 func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (*service.SubscriptionService, *service.Scanner) {
 	repoRepo := repository.NewPostgresRepoRepository(dbPool)
 	subRepo := repository.NewPostgresRepository(dbPool)
-	ghClient := githubclient.NewClient(cfg.GitHubToken, redisClient)
+	baseClient := githubclient.NewClient(cfg.GitHubToken)
 	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom)
 
-	subService := service.NewSubscriptionService(repoRepo, subRepo, ghClient, emailSender, cfg.BaseURL)
+	var repoChecker githubclient.RepoChecker = baseClient
+	if redisClient != nil {
+		repoChecker = githubclient.NewCachedClient(baseClient, redisClient)
+	}
+
+	subService := service.NewSubscriptionService(repoRepo, subRepo, repoChecker, emailSender, cfg.BaseURL)
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {
 		log.Printf("warn: invalid SCAN_INTERVAL %q, defaulting to 1h", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := service.NewScanner(repoRepo, subRepo, ghClient, emailSender, cfg.BaseURL, scanInterval)
+	scanner := service.NewScanner(repoRepo, subRepo, baseClient, emailSender, cfg.BaseURL, scanInterval)
 
 	return subService, scanner
 }
