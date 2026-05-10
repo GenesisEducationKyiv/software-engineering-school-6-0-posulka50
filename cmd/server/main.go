@@ -139,14 +139,14 @@ func initRedis(redisURL string) *redis.Client {
 	return client
 }
 
-func newRouter(cfg *config.Config, subService *service.SubscriptionService) *gin.Engine {
+func newRouter(cfg *config.Config, svc handler.Service) *gin.Engine {
 	gin.SetMode(cfg.GinMode)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.Prometheus())
 
-	h := handler.New(subService)
+	h := handler.New(svc)
 
 	api := router.Group("/api")
 	{
