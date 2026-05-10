@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"time"
 
@@ -36,21 +35,10 @@ type Notifier interface {
 	SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error
 }
 
-var (
-	baseTmpl    = mustLoadTemplate(nil, "templates/base.html")
-	confirmTmpl = mustLoadTemplate(baseTmpl, "templates/confirm.html")
-	releaseTmpl = mustLoadTemplate(baseTmpl, "templates/release.html")
-)
-
-func mustLoadTemplate(base *template.Template, path string) *template.Template {
-	content, err := templateFS.ReadFile(path)
-	if err != nil {
-		panic(fmt.Sprintf("read template %s: %v", path, err))
-	}
-	if base != nil {
-		return template.Must(template.Must(base.Clone()).Parse(string(content)))
-	}
-	return template.Must(template.New("base").Parse(string(content)))
+// renderer defines the interface for rendering email HTML bodies.
+type renderer interface {
+	RenderConfirmation(data ConfirmData) (string, error)
+	RenderRelease(data ReleaseData) (string, error)
 }
 
 // Sender sends transactional emails via the Resend API.
@@ -58,6 +46,7 @@ type Sender struct {
 	httpClient *http.Client
 	apiKey     string
 	from       string
+	renderer   renderer
 }
 
 // NewSender creates a new Sender using the given Resend API key and sender address.
@@ -66,12 +55,13 @@ func NewSender(apiKey, from string) *Sender {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		apiKey:     apiKey,
 		from:       from,
+		renderer:   NewTemplateRenderer(),
 	}
 }
 
 // SendConfirmation sends a subscription confirmation email to the given address.
 func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmData) error {
-	body, err := renderTemplate(confirmTmpl, data)
+	body, err := s.renderer.RenderConfirmation(data)
 	if err != nil {
 		return err
 	}
@@ -84,7 +74,7 @@ func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmDa
 
 // SendReleaseNotification sends a new release notification email to the given address.
 func (s *Sender) SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error {
-	body, err := renderTemplate(releaseTmpl, data)
+	body, err := s.renderer.RenderRelease(data)
 	if err != nil {
 		return err
 	}
@@ -123,12 +113,4 @@ func (s *Sender) send(ctx context.Context, to, subject, htmlBody string) error {
 		return fmt.Errorf("resend returned status %d", resp.StatusCode)
 	}
 	return nil
-}
-
-func renderTemplate(tmpl *template.Template, data any) (string, error) {
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("render template: %w", err)
-	}
-	return buf.String(), nil
 }
