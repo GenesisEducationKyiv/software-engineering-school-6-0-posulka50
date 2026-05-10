@@ -33,16 +33,6 @@ type Release struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
-// RepoChecker checks whether a GitHub repository exists.
-type RepoChecker interface {
-	CheckRepo(ctx context.Context, owner, repo string) error
-}
-
-// ReleaseChecker fetches the latest release for a GitHub repository.
-type ReleaseChecker interface {
-	GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error)
-}
-
 // Client is an HTTP client for the GitHub REST API with optional Redis caching.
 type Client struct {
 	httpClient *http.Client
