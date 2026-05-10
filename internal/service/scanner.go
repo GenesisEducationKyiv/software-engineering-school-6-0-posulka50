@@ -21,7 +21,7 @@ type releaseChecker interface {
 // Scanner polls GitHub for new releases and notifies subscribers by email.
 type Scanner struct {
 	repoRepo    repository.Repository
-	subRepo     repository.SubscriptionRepository
+	subRepo     repository.ScannerSubscriptionRepository
 	github      releaseChecker
 	emailSender email.Notifier
 	baseURL     string
@@ -31,7 +31,7 @@ type Scanner struct {
 // NewScanner creates a Scanner that checks repositories on the given interval.
 func NewScanner(
 	repoRepo repository.Repository,
-	subRepo repository.SubscriptionRepository,
+	subRepo repository.ScannerSubscriptionRepository,
 	githubClient releaseChecker,
 	emailSender email.Notifier,
 	baseURL string,

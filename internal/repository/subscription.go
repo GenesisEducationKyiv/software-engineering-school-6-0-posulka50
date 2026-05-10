@@ -24,10 +24,14 @@ type SubscriptionRepository interface {
 	GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error)
 	GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error)
 	GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error)
-	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
 	Confirm(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
 	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
+}
+
+// ScannerSubscriptionRepository defines the minimal read interface required by the release scanner.
+type ScannerSubscriptionRepository interface {
+	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
 }
 
 // PostgresRepository is a PostgreSQL implementation of SubscriptionRepository.
