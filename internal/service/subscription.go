@@ -7,9 +7,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
@@ -99,16 +97,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName
 		return ErrAlreadyExists
 	}
 
-	sub := &model.Subscription{
-		ID:               uuid.New().String(),
-		RepoID:           repoRecord.ID,
-		Repo:             repoName,
-		Email:            emailAddr,
-		Confirmed:        false,
-		ConfirmToken:     uuid.New().String(),
-		UnsubscribeToken: uuid.New().String(),
-		CreatedAt:        time.Now().UTC(),
-	}
+	sub := model.NewSubscription(emailAddr, repoRecord.ID, repoName)
 
 	log.Printf("service: creating subscription %s → %s", emailAddr, repoName)
 	if err := s.subRepo.Create(ctx, sub); err != nil {
