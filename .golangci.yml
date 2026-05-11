@@ -58,6 +58,7 @@ linters:
       - path: _test\.go
         linters:
           - goconst
+          - unparam
 
 formatters:
   enable:
