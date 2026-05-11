@@ -14,6 +14,7 @@ linters:
     - rowserrcheck
     - goprintffuncname
     # code quality
+    - errorlint
     - gocritic
     - goconst
     - gocyclo
