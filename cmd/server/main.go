@@ -30,25 +30,26 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("warn: .env file not found or unreadable (%v), using environment variables", err)
 	}
 
 	cfg := config.Load()
 
-	var (
-		dbPool *pgxpool.Pool
-		err    error
-	)
-
-	dbPool, err = initDB(cfg.DatabaseURL)
+	dbPool, err := initDB(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("database init failed: %v", err)
+		return fmt.Errorf("database init failed: %w", err)
 	}
 	defer dbPool.Close()
 
 	if err = runMigrations(cfg.DatabaseURL); err != nil {
-		log.Fatalf("migrations failed: %v", err)
+		return fmt.Errorf("migrations failed: %w", err)
 	}
 	log.Println("migrations applied")
 
@@ -84,6 +85,7 @@ func main() {
 		log.Printf("server forced to shutdown: %v", err)
 	}
 	log.Println("server stopped")
+	return nil
 }
 
 func initDB(databaseURL string) (*pgxpool.Pool, error) {
