@@ -32,7 +32,7 @@ type repoChecker interface {
 }
 
 type SubscriptionService struct {
-	repoRepo    repository.RepositoryRepository
+	repoRepo    repository.Repository
 	subRepo     repository.SubscriptionRepository
 	github      repoChecker
 	emailSender email.Notifier
@@ -40,7 +40,7 @@ type SubscriptionService struct {
 }
 
 func NewSubscriptionService(
-	repoRepo repository.RepositoryRepository,
+	repoRepo repository.Repository,
 	subRepo repository.SubscriptionRepository,
 	githubClient repoChecker,
 	emailSender email.Notifier,
@@ -55,6 +55,7 @@ func NewSubscriptionService(
 	}
 }
 
+// Subscribe validates the email and repo, creates a pending subscription, and sends a confirmation email.
 func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName string) error {
 	if !isValidEmail(emailAddr) {
 		return ErrInvalidEmail
@@ -110,7 +111,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, emailAddr, repoName
 	}
 
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", s.baseURL, sub.ConfirmToken)
-	if err := s.emailSender.SendConfirmation(emailAddr, email.ConfirmData{
+	if err := s.emailSender.SendConfirmation(ctx, emailAddr, email.ConfirmData{
 		Repo:       repoName,
 		ConfirmURL: confirmURL,
 	}); err != nil {

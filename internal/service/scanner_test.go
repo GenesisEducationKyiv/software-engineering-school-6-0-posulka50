@@ -25,15 +25,19 @@ type mockNotifier struct {
 	releaseErr    error
 }
 
-func (m *mockNotifier) SendConfirmation(_ string, _ email.ConfirmData) error { return nil }
+func (m *mockNotifier) SendConfirmation(_ context.Context, _ string, _ email.ConfirmData) error {
+	return nil
+}
 
-func (m *mockNotifier) SendReleaseNotification(to string, _ email.ReleaseData) error {
+func (m *mockNotifier) SendReleaseNotification(_ context.Context, to string, _ email.ReleaseData) error {
 	if m.releaseErr != nil {
 		return m.releaseErr
 	}
 	m.releaseEmails = append(m.releaseEmails, to)
 	return nil
 }
+
+const initialTag = "v1.0.0"
 
 func ptr(s string) *string { return &s }
 
@@ -63,7 +67,7 @@ func newScanner(rr *mockRepoRepo, sr *mockSubRepo, gh *mockReleaseChecker, em *m
 }
 
 func TestScanner_SendsNotificationOnNewRelease(t *testing.T) {
-	rr, sr := repoWithSubs("golang/go", ptr("v1.0.0"), "user@example.com", "id1", "unsub1")
+	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id1", "unsub1")
 	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: "v1.1.0", Name: "Go 1.1"}}
 	em := &mockNotifier{}
 
@@ -78,8 +82,8 @@ func TestScanner_SendsNotificationOnNewRelease(t *testing.T) {
 }
 
 func TestScanner_NoNotificationWhenTagUnchanged(t *testing.T) {
-	rr, sr := repoWithSubs("golang/go", ptr("v1.0.0"), "user@example.com", "id1", "unsub1")
-	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: "v1.0.0"}}
+	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id2", "unsub2")
+	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: initialTag}}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -90,8 +94,8 @@ func TestScanner_NoNotificationWhenTagUnchanged(t *testing.T) {
 }
 
 func TestScanner_SetsInitialTagWithoutNotifying(t *testing.T) {
-	rr, sr := repoWithSubs("golang/go", nil, "user@example.com", "id1", "unsub1")
-	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: "v1.0.0"}}
+	rr, sr := repoWithSubs("golang/go", nil, "other@example.com", "id1", "unsub1")
+	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: initialTag}}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -99,7 +103,7 @@ func TestScanner_SetsInitialTagWithoutNotifying(t *testing.T) {
 	if len(em.releaseEmails) != 0 {
 		t.Errorf("expected no notifications on first scan, got %v", em.releaseEmails)
 	}
-	if rr.lastSeenTags["golang/go"] != "v1.0.0" {
+	if rr.lastSeenTags["golang/go"] != initialTag {
 		t.Errorf("expected initial last_seen_tag=v1.0.0, got %q", rr.lastSeenTags["golang/go"])
 	}
 }
@@ -109,7 +113,7 @@ func TestScanner_StopsOnRateLimit(t *testing.T) {
 	sr := newMockSubRepo()
 
 	for _, full := range []string{"owner/repo1", "owner/repo2"} {
-		rr.repos[full] = &model.Repository{ID: full, FullName: full, LastSeenTag: ptr("v1.0.0")}
+		rr.repos[full] = &model.Repository{ID: full, FullName: full, LastSeenTag: ptr(initialTag)}
 	}
 
 	gh := &mockReleaseChecker{err: githubclient.ErrRateLimit}
@@ -123,7 +127,7 @@ func TestScanner_StopsOnRateLimit(t *testing.T) {
 }
 
 func TestScanner_SkipsOnNoRelease(t *testing.T) {
-	rr, sr := repoWithSubs("golang/go", ptr("v1.0.0"), "user@example.com", "id1", "unsub1")
+	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id1", "unsub1")
 	gh := &mockReleaseChecker{err: githubclient.ErrNotFound}
 	em := &mockNotifier{}
 

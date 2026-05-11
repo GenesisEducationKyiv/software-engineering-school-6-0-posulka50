@@ -17,6 +17,7 @@ type Config struct {
 
 	BaseURL      string
 	ScanInterval string
+	GinMode      string
 }
 
 func Load() *Config {
@@ -30,6 +31,7 @@ func Load() *Config {
 		EmailFrom:    os.Getenv("EMAIL_FROM"),
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
+		GinMode:      getEnv("GIN_MODE", "release"),
 	}
 }
 

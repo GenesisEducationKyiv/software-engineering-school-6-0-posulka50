@@ -15,7 +15,9 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("repository not found")
+	// ErrNotFound is returned when a repository does not exist on GitHub.
+	ErrNotFound = errors.New("repository not found")
+
 	ErrRateLimit = errors.New("github api rate limit exceeded")
 )
 
@@ -37,12 +39,15 @@ type ReleaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error)
 }
 
+// Client is an HTTP client for the GitHub REST API with optional Redis caching.
 type Client struct {
 	httpClient *http.Client
 	token      string
 	redis      *redis.Client
 }
 
+// NewClient creates a new GitHub API client. If redisClient is non-nil it is used
+// to cache repository existence checks for cacheTTL.
 func NewClient(token string, redisClient *redis.Client) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -69,7 +74,11 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github: failed to close response body: %v", err)
+		}
+	}()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	switch resp.StatusCode {
@@ -101,7 +110,11 @@ func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Rel
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github: failed to close response body: %v", err)
+		}
+	}()
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:

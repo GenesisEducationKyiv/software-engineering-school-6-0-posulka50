@@ -18,8 +18,9 @@ type releaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*githubclient.Release, error)
 }
 
+// Scanner polls GitHub for new releases and notifies subscribers by email.
 type Scanner struct {
-	repoRepo    repository.RepositoryRepository
+	repoRepo    repository.Repository
 	subRepo     repository.SubscriptionRepository
 	github      releaseChecker
 	emailSender email.Notifier
@@ -28,7 +29,7 @@ type Scanner struct {
 }
 
 func NewScanner(
-	repoRepo repository.RepositoryRepository,
+	repoRepo repository.Repository,
 	subRepo repository.SubscriptionRepository,
 	githubClient releaseChecker,
 	emailSender email.Notifier,
@@ -49,6 +50,8 @@ func (s *Scanner) RunOnce(ctx context.Context) {
 	s.scan(ctx)
 }
 
+// Start runs the scanner in a loop, scanning immediately and then on each interval tick.
+// It blocks until ctx is canceled.
 func (s *Scanner) Start(ctx context.Context) {
 	log.Printf("scanner: started (interval=%s)", s.interval)
 	ticker := time.NewTicker(s.interval)
@@ -131,7 +134,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	for _, sub := range subs {
 		unsubURL := fmt.Sprintf("%s/api/unsubscribe/%s", s.baseURL, sub.UnsubscribeToken)
-		err := s.emailSender.SendReleaseNotification(sub.Email, email.ReleaseData{
+		err = s.emailSender.SendReleaseNotification(ctx, sub.Email, email.ReleaseData{
 			Repo:           repo.FullName,
 			TagName:        release.TagName,
 			ReleaseName:    release.Name,

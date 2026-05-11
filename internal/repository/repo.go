@@ -10,7 +10,7 @@ import (
 	"github.com/posul/github-notifier/internal/model"
 )
 
-type RepositoryRepository interface {
+type Repository interface {
 	GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error)
 	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error)
 	UpdateLastSeenTag(ctx context.Context, id string, tag string) error
