@@ -45,13 +45,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("database init failed: %v", err)
 	}
+	defer dbPool.Close()
 
 	if err = runMigrations(cfg.DatabaseURL); err != nil {
 		log.Fatalf("migrations failed: %v", err)
 	}
 	log.Println("migrations applied")
-
-	defer dbPool.Close()
 
 	redisClient := initRedis(cfg.RedisURL)
 
