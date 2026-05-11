@@ -53,6 +53,12 @@ linters:
       require-explanation: true
       require-specific: true
 
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - goconst
+
 formatters:
   enable:
     - gofmt
@@ -61,9 +67,3 @@ formatters:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-
-exclusions:
-  rules:
-    - path: _test\.go
-      linters:
-        - goconst
