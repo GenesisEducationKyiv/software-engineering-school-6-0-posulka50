@@ -20,12 +20,10 @@ const (
 	msgUnsubscribeSuccess   = "Unsubscribed successfully"
 )
 
-// Handler holds the HTTP handler methods for the subscription API.
 type Handler struct {
 	svc Service
 }
 
-// New creates a new Handler with the given Service.
 func New(svc Service) *Handler {
 	return &Handler{svc: svc}
 }

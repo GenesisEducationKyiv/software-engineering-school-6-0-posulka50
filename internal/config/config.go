@@ -2,7 +2,6 @@ package config
 
 import "os"
 
-// Config holds all application configuration loaded from environment variables.
 type Config struct {
 	Port   string
 	APIKey string
@@ -21,7 +20,6 @@ type Config struct {
 	GinMode      string
 }
 
-// Load reads configuration from environment variables and returns a Config with defaults applied.
 func Load() *Config {
 	return &Config{
 		Port:         getEnv("PORT", "8080"),

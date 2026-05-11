@@ -18,13 +18,11 @@ var (
 	// ErrNotFound is returned when a repository does not exist on GitHub.
 	ErrNotFound = errors.New("repository not found")
 
-	// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
 	ErrRateLimit = errors.New("github api rate limit exceeded")
 )
 
 const cacheTTL = 10 * time.Minute
 
-// Release represents a GitHub repository release.
 type Release struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
@@ -33,12 +31,10 @@ type Release struct {
 	PublishedAt time.Time `json:"published_at"`
 }
 
-// RepoChecker checks whether a GitHub repository exists.
 type RepoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
-// ReleaseChecker fetches the latest release for a GitHub repository.
 type ReleaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error)
 }
@@ -60,7 +56,6 @@ func NewClient(token string, redisClient *redis.Client) *Client {
 	}
 }
 
-// CheckRepo verifies that the given owner/repo exists on GitHub.
 func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
 
@@ -108,7 +103,6 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	}
 }
 
-// GetLatestRelease returns the latest release for the given owner/repo.
 func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error) {
 	log.Printf("github: fetch latest release %s/%s", owner, repo)
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
