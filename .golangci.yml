@@ -42,7 +42,6 @@ linters:
 
     revive:
       rules:
-        - name: exported
         - name: var-naming
         - name: error-return
         - name: error-strings
