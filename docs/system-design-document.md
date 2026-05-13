@@ -101,13 +101,52 @@
 
 ### Components
 
-**REST API** — Gin router that handles subscribe, confirm, unsubscribe, and list requests. Middleware stack: `gin.Recovery`, Prometheus instrumentation. `APIKeyAuth` middleware is implemented (`internal/middleware/auth.go`) but not currently wired into the router.
+```mermaid
+C4Component
+    title Component Diagram — GitHub Release Notifier
 
-**Scanner Worker** — A single goroutine started at application boot. Iterates all repositories with at least one confirmed subscriber, fetches the latest release tag from GitHub, compares it against `repositories.last_seen_tag`, and sends notification emails to all confirmed subscribers when a new tag is found.
+    Container_Boundary(app, "Release Notifier (Go binary)") {
+        Component(router, "Gin Router", "Gin", "Routes HTTP requests; runs Recovery and Prometheus middleware")
+        Component(handlers, "Handlers", "Go", "Subscribe, Confirm, Unsubscribe, List")
+        Component(svc, "SubscriptionService", "Go", "Business logic: validation, orchestration, token management")
+        Component(ghclient, "GitHub Client", "Go net/http", "Checks repo existence; fetches latest release tag")
+        Component(scanner, "Scanner Worker", "Go goroutine", "Periodic loop: detects new tags, dispatches notifications")
+        Component(emailsender, "Email Sender", "Go net/http", "Sends confirmation and release notification emails")
+        Component(dblayer, "DB Layer", "pgx", "CRUD on repositories and subscriptions")
+    }
 
-**PostgreSQL** — Authoritative store for subscriptions and repository state.
+    SystemDb_Ext(postgres, "PostgreSQL", "Authoritative store for subscriptions and repository state")
+    SystemDb_Ext(redis, "Redis", "Optional repo-existence cache; TTL 10 min")
+    System_Ext(github, "GitHub API", "Repository metadata and latest release tags")
+    System_Ext(resend, "Resend API", "Transactional email delivery")
 
-**Redis** — Optional cache for GitHub repository existence checks (`github:repo:{owner}/{repo}` keys, 10-minute TTL). If Redis is unavailable, the application runs without caching.
+    Rel(router, handlers, "delegates")
+    Rel(handlers, svc, "calls")
+    Rel(svc, ghclient, "check repo")
+    Rel(svc, dblayer, "read / write")
+    Rel(svc, emailsender, "send confirmation")
+    Rel(scanner, dblayer, "read repos & subscribers / update tag")
+    Rel(scanner, ghclient, "fetch latest release")
+    Rel(scanner, emailsender, "send notifications")
+    Rel(ghclient, redis, "GET / SET cache")
+    Rel(ghclient, github, "HTTPS GET")
+    Rel(emailsender, resend, "POST /emails")
+    Rel(dblayer, postgres, "SQL")
+```
+
+**Gin Router** — entry point for all HTTP traffic. Middleware stack: `gin.Recovery`, Prometheus instrumentation. `APIKeyAuth` middleware is implemented (`internal/middleware/auth.go`) but not currently wired into the router.
+
+**SubscriptionService** — orchestrates the subscribe flow: input validation, GitHub existence check, DB upsert, confirmation email dispatch.
+
+**Scanner Worker** — single goroutine started at boot. Iterates all repositories with at least one confirmed subscriber, fetches the latest release tag from GitHub, compares it against `repositories.last_seen_tag`, and dispatches notification emails when a new tag is found.
+
+**GitHub Client** — wraps GitHub REST API calls; uses Redis to cache repo-existence responses for 10 minutes.
+
+**Email Sender** — renders HTML templates and posts to the Resend API.
+
+**DB Layer** — all PostgreSQL access via `pgx`; no ORM.
+
+**Redis** — optional; if unavailable the service falls back to live GitHub API calls.
 
 ---
 
