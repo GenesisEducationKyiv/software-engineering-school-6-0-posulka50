@@ -185,6 +185,30 @@ sequenceDiagram
 
 ## 6. Data Model
 
+### Entity-Relationship Diagram
+
+```mermaid
+erDiagram
+    repositories {
+        TEXT id PK
+        TEXT full_name UK "owner/repo"
+        TEXT last_seen_tag "NULL until first scan"
+        TIMESTAMPTZ created_at
+    }
+    subscriptions {
+        TEXT id PK
+        TEXT repo_id FK
+        TEXT email
+        BOOLEAN confirmed "default false"
+        TEXT confirm_token UK
+        TEXT unsubscribe_token UK
+        TIMESTAMPTZ created_at
+    }
+    repositories ||--o{ subscriptions : "has"
+```
+
+### Tables
+
 ```
 repositories
 ─────────────────────────────────────────────────────
@@ -204,6 +228,26 @@ unsubscribe_token TEXT  UNIQUE NOT NULL
 created_at        TIMESTAMPTZ NOT NULL
 UNIQUE (email, repo_id)
 ```
+
+### Relations
+
+| Relation | Type | Details |
+|---|---|---|
+| `subscriptions.repo_id` → `repositories.id` | Many-to-one | A repository can have many subscriptions; a subscription belongs to exactly one repository. `ON DELETE CASCADE` removes all subscriptions when a repository row is deleted. |
+
+### Indexes
+
+| Table | Index | Columns | Purpose |
+|---|---|---|---|
+| `repositories` | PK | `id` | Row lookup by surrogate key |
+| `repositories` | `idx_repositories_full_name` | `full_name` | `GetOrCreate` lookup by `owner/repo` string |
+| `subscriptions` | PK | `id` | Row lookup by surrogate key |
+| `subscriptions` | `idx_subscriptions_repo_id` | `repo_id` | Join / filter subscriptions for a given repository |
+| `subscriptions` | `idx_subscriptions_email` | `email` | List subscriptions by email address |
+| `subscriptions` | `idx_subscriptions_confirmed` | `confirmed` | Efficiently filter confirmed/unconfirmed rows during scan |
+| `subscriptions` | `idx_subscriptions_confirm_token` | `confirm_token` | Token lookup on confirmation click |
+| `subscriptions` | `idx_subscriptions_unsubscribe_token` | `unsubscribe_token` | Token lookup on unsubscribe click |
+| `subscriptions` | `subscriptions_email_repo_unique` | `(email, repo_id)` | Enforce one subscription per email+repo pair |
 
 `last_seen_tag` is NULL until the repository is scanned for the first time and serves as the baseline for detecting new releases. `confirmed` guards against unverified addresses receiving notifications. Both tokens are UUID v4 and are never reused across subscriptions.
 
