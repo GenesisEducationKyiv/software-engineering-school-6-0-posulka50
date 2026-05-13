@@ -101,66 +101,11 @@
 
 ### Container Diagram
 
-```mermaid
-C4Container
-    title Container Diagram — GitHub Release Notifier
-
-    Person(user, "Subscriber", "Manages subscriptions via HTTP API")
-
-    Container_Boundary(app, "Release Notifier (Go binary)") {
-        Container(api, "REST API", "Go / Gin", "Handles subscribe, confirm, unsubscribe, list requests")
-        Container(scanner, "Scanner Worker", "Go goroutine", "Periodically polls GitHub and dispatches release notifications")
-    }
-
-    ContainerDb(postgres, "PostgreSQL", "Database", "Stores repositories and subscriptions")
-    ContainerDb(redis, "Redis", "Cache", "Caches GitHub repo-existence checks; TTL 10 min")
-    System_Ext(github, "GitHub API", "Repository metadata and latest release tags")
-    System_Ext(resend, "Resend API", "Transactional email delivery")
-
-    Rel(user, api, "HTTPS", "subscribe / confirm / unsubscribe / list")
-    Rel(api, postgres, "SQL", "read / write subscriptions & repositories")
-    Rel(api, redis, "GET / SET", "repo-existence cache")
-    Rel(api, github, "HTTPS GET", "verify repo exists")
-    Rel(api, resend, "HTTPS POST", "send confirmation email")
-    Rel(scanner, postgres, "SQL", "read repos & subscribers / update last_seen_tag")
-    Rel(scanner, github, "HTTPS GET", "fetch latest release tag")
-    Rel(scanner, resend, "HTTPS POST", "send release notification emails")
-```
+![Container Diagram](img/container-diagram.png)
 
 ### Components
 
-```mermaid
-C4Component
-    title Component Diagram — GitHub Release Notifier
-
-    Container_Boundary(app, "Release Notifier (Go binary)") {
-        Component(router, "HTTP Router", "Gin", "Routes HTTP requests; runs recovery and metrics middleware")
-        Component(handlers, "Handlers", "Go", "Subscribe, Confirm, Unsubscribe, List")
-        Component(svc, "SubscriptionService", "Go", "Business logic: validation, orchestration, token management")
-        Component(ghclient, "GitHub Client", "Go", "Checks repo existence; fetches latest release tag")
-        Component(scanner, "Scanner Worker", "Go goroutine", "Periodic loop: detects new tags, dispatches notifications")
-        Component(emailsender, "Email Sender", "Go", "Sends confirmation and release notification emails")
-        Component(dblayer, "DB Layer", "Go", "CRUD on repositories and subscriptions")
-    }
-
-    SystemDb_Ext(postgres, "PostgreSQL", "Authoritative store for subscriptions and repository state")
-    SystemDb_Ext(redis, "Redis", "Optional repo-existence cache; TTL 10 min")
-    System_Ext(github, "GitHub API", "Repository metadata and latest release tags")
-    System_Ext(resend, "Resend API", "Transactional email delivery")
-
-    Rel(router, handlers, "delegates")
-    Rel(handlers, svc, "calls")
-    Rel(svc, ghclient, "check repo")
-    Rel(svc, dblayer, "read / write")
-    Rel(svc, emailsender, "send confirmation")
-    Rel(scanner, dblayer, "read repos & subscribers / update tag")
-    Rel(scanner, ghclient, "fetch latest release")
-    Rel(scanner, emailsender, "send notifications")
-    Rel(ghclient, redis, "GET / SET cache")
-    Rel(ghclient, github, "HTTPS GET")
-    Rel(emailsender, resend, "POST /emails")
-    Rel(dblayer, postgres, "SQL")
-```
+![Component Diagram](img/components.png)
 
 **HTTP Router** — entry point for all HTTP traffic. Runs recovery and Prometheus instrumentation middleware. API key authentication is implemented but not currently enforced on any route.
 
