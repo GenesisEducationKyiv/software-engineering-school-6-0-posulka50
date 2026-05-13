@@ -40,7 +40,7 @@
 | Category | Requirement | Target |
 |---|---|---|
 | Availability | Service must degrade gracefully when Redis is unavailable; caching is disabled but the service continues to function. | No downtime on Redis failure |
-| Reliability | Unconfirmed subscriptions must never receive release notification emails. | Zero false notifications |
+| Reliability | Unconfirmed subscriptions never receive release notification emails. Release notifications use **at-least-once delivery**: `last_seen_tag` is updated in the DB only after all emails for a repo are dispatched. A process crash between email dispatch and the DB write causes the same release to be re-notified on the next scan cycle. | No notifications to unconfirmed addresses; duplicate notifications possible on crash |
 | Performance | GitHub repository existence checks are cached to avoid redundant API calls on repeated subscribe requests. | ≤ 1 uncached GitHub call per repo per 10 min |
 | Rate-limit safety | Scanner aborts the current scan cycle immediately upon receiving a GitHub 429 response to avoid exhausting the API quota. | No banned tokens |
 | Observability | HTTP request counts, latency histograms, email counters, and GitHub API call counters are exposed as Prometheus metrics at `/metrics`. | All key operations instrumented |
