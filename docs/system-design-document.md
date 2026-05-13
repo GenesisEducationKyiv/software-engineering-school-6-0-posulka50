@@ -99,6 +99,34 @@
 | Email delivery | Resend HTTP API |
 | Containerisation | Docker, Docker Compose |
 
+### Container Diagram
+
+```mermaid
+C4Container
+    title Container Diagram — GitHub Release Notifier
+
+    Person(user, "Subscriber", "Manages subscriptions via HTTP API")
+
+    Container_Boundary(app, "Release Notifier (Go binary)") {
+        Container(api, "REST API", "Go / Gin", "Handles subscribe, confirm, unsubscribe, list requests")
+        Container(scanner, "Scanner Worker", "Go goroutine", "Periodically polls GitHub and dispatches release notifications")
+    }
+
+    ContainerDb(postgres, "PostgreSQL", "Database", "Stores repositories and subscriptions")
+    ContainerDb(redis, "Redis", "Cache", "Caches GitHub repo-existence checks; TTL 10 min")
+    System_Ext(github, "GitHub API", "Repository metadata and latest release tags")
+    System_Ext(resend, "Resend API", "Transactional email delivery")
+
+    Rel(user, api, "HTTPS", "subscribe / confirm / unsubscribe / list")
+    Rel(api, postgres, "SQL", "read / write subscriptions & repositories")
+    Rel(api, redis, "GET / SET", "repo-existence cache")
+    Rel(api, github, "HTTPS GET", "verify repo exists")
+    Rel(api, resend, "HTTPS POST", "send confirmation email")
+    Rel(scanner, postgres, "SQL", "read repos & subscribers / update last_seen_tag")
+    Rel(scanner, github, "HTTPS GET", "fetch latest release tag")
+    Rel(scanner, resend, "HTTPS POST", "send release notification emails")
+```
+
 ### Components
 
 ```mermaid
