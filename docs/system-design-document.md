@@ -249,4 +249,4 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 **Token design** — Each subscription carries two independent UUID v4 tokens: `confirm_token` and `unsubscribe_token`. Tokens are single-use and never reused.
 
-**Input validation** — `repo` is validated against `^[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-]+$` before any DB or API call. All SQL parameters use positional placeholders — no string interpolation.
+**Input validation** — Email format and repository name are validated before any DB or API call. All SQL parameters use positional placeholders — no string interpolation.
