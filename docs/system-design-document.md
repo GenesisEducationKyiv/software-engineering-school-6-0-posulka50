@@ -14,7 +14,8 @@
 - [6. Data Model](#6-data-model)
 - [7. External Interfaces](#7-external-interfaces)
 - [8. Non-Functional Properties](#8-non-functional-properties)
-- [9. Security](#9-security)
+- [9. Failure Modes](#9-failure-modes)
+- [10. Security](#10-security)
 
 ---
 
@@ -241,7 +242,21 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 ---
 
-## 9. Security
+## 9. Failure Modes
+
+| Component | Failure | System behaviour |
+|---|---|---|
+| **PostgreSQL** | Unavailable at scan start | `scan()` logs the error and returns early; the scan cycle is skipped entirely. HTTP handlers return 500 for any request that touches the DB. |
+| **PostgreSQL** | `UpdateLastSeenTag` fails after emails sent | Error is logged; `last_seen_tag` is not updated. The same release is re-detected on the next scan cycle — subscribers receive a duplicate notification (at-least-once delivery). |
+| **GitHub API** | 429 Rate limit during scan | Scanner stops the current cycle immediately and resumes on the next tick. Repositories not yet checked in that cycle are skipped until the next scan. |
+| **GitHub API** | 404 on latest release | Treated as "no releases yet" — repository is silently skipped. |
+| **GitHub API** | Other non-200 response during scan | Error is logged; that repository is skipped for the current cycle. |
+| **Resend** | Email delivery fails for one subscriber | Error is logged; the scanner continues to the next subscriber. The failed subscriber does not receive the notification for this release. `last_seen_tag` is still updated after the loop, so the notification is not retried on the next scan. |
+| **Redis** | Unavailable at startup or runtime | Cache is disabled for the duration of the outage. Every subscribe request falls back to a live GitHub API call. Service continues to function; rate limit consumption increases. |
+
+---
+
+## 10. Security
 
 **API key authentication** — `APIKeyAuth` middleware is implemented and checks `X-API-Key` when `API_KEY` is set, but is not currently registered in the router.
 
