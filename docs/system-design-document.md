@@ -57,8 +57,8 @@
 - **Single binary**: the entire service is compiled into one executable — no microservices, no sidecar processes, no message broker.
 - **GitHub API rate limits**: unauthenticated requests are capped at 60 req/h; authenticated requests at 5 000 req/h. The scanner and subscribe flow must stay within these limits. Redis caching and scan-interval tuning are the primary mitigations.
 - **Go 1.25**: the codebase targets Go 1.25; no earlier version is supported.
-- **Resend as the sole email provider**: all transactional email goes through the Resend HTTP API. Switching to another provider requires replacing `internal/email/sender.go`.
-- **PostgreSQL schema migrations are applied at startup**: the binary embeds migration files and runs them automatically via `golang-migrate`; there is no separate migration step in the deployment pipeline.
+- **Resend as the sole email provider**: all transactional email goes through the Resend HTTP API. Switching to another provider requires replacing the email sender implementation.
+- **PostgreSQL schema migrations are applied at startup**: migrations run automatically on boot; there is no separate migration step in the deployment pipeline.
 
 ### Business Constraints
 
@@ -134,13 +134,13 @@ C4Component
     title Component Diagram — GitHub Release Notifier
 
     Container_Boundary(app, "Release Notifier (Go binary)") {
-        Component(router, "Gin Router", "Gin", "Routes HTTP requests; runs Recovery and Prometheus middleware")
+        Component(router, "HTTP Router", "Gin", "Routes HTTP requests; runs recovery and metrics middleware")
         Component(handlers, "Handlers", "Go", "Subscribe, Confirm, Unsubscribe, List")
         Component(svc, "SubscriptionService", "Go", "Business logic: validation, orchestration, token management")
-        Component(ghclient, "GitHub Client", "Go net/http", "Checks repo existence; fetches latest release tag")
+        Component(ghclient, "GitHub Client", "Go", "Checks repo existence; fetches latest release tag")
         Component(scanner, "Scanner Worker", "Go goroutine", "Periodic loop: detects new tags, dispatches notifications")
-        Component(emailsender, "Email Sender", "Go net/http", "Sends confirmation and release notification emails")
-        Component(dblayer, "DB Layer", "pgx", "CRUD on repositories and subscriptions")
+        Component(emailsender, "Email Sender", "Go", "Sends confirmation and release notification emails")
+        Component(dblayer, "DB Layer", "Go", "CRUD on repositories and subscriptions")
     }
 
     SystemDb_Ext(postgres, "PostgreSQL", "Authoritative store for subscriptions and repository state")
@@ -162,17 +162,17 @@ C4Component
     Rel(dblayer, postgres, "SQL")
 ```
 
-**Gin Router** — entry point for all HTTP traffic. Middleware stack: `gin.Recovery`, Prometheus instrumentation. `APIKeyAuth` middleware is implemented (`internal/middleware/auth.go`) but not currently wired into the router.
+**HTTP Router** — entry point for all HTTP traffic. Runs recovery and Prometheus instrumentation middleware. API key authentication is implemented but not currently enforced on any route.
 
 **SubscriptionService** — orchestrates the subscribe flow: input validation, GitHub existence check, DB upsert, confirmation email dispatch.
 
-**Scanner Worker** — single goroutine started at boot. Iterates all repositories with at least one confirmed subscriber, fetches the latest release tag from GitHub, compares it against `repositories.last_seen_tag`, and dispatches notification emails when a new tag is found.
+**Scanner Worker** — single goroutine started at boot. Iterates all repositories with at least one confirmed subscriber, fetches the latest release tag from GitHub, compares it against the stored tag, and dispatches notification emails when a new tag is found.
 
-**GitHub Client** — wraps GitHub REST API calls; uses Redis to cache repo-existence responses for 10 minutes.
+**GitHub Client** — wraps GitHub REST API calls; uses Redis to cache repo-existence responses.
 
-**Email Sender** — renders HTML templates and posts to the Resend API.
+**Email Sender** — renders email templates and delivers them via the Resend API.
 
-**DB Layer** — all PostgreSQL access via `pgx`; no ORM.
+**DB Layer** — all PostgreSQL access via parameterized queries; no ORM.
 
 **Redis** — optional; if unavailable the service falls back to live GitHub API calls.
 
@@ -185,7 +185,7 @@ C4Component
 ```mermaid
 sequenceDiagram
     actor User
-    participant API as Gin Router / Handler
+    participant API as HTTP Router / Handler
     participant Svc as SubscriptionService
     participant GH as GitHub Client
     participant Redis
@@ -193,29 +193,29 @@ sequenceDiagram
     participant Email as Resend
 
     User->>API: POST /api/subscribe {email, repo}
-    API->>Svc: Subscribe(ctx, email, repo)
-    Svc->>GH: CheckRepo(owner, repo)
-    GH->>Redis: GET github:repo:{owner/repo}
+    API->>Svc: subscribe(email, repo)
+    Svc->>GH: check repo exists
+    GH->>Redis: look up cached result
     alt cache miss
-        Redis-->>GH: nil
+        Redis-->>GH: not found
         GH->>GH: GET /repos/{owner}/{repo}
-        GH->>Redis: SET github:repo:{owner/repo} TTL 10m
+        GH->>Redis: cache result (TTL 10 min)
     else cache hit
-        Redis-->>GH: cached value
+        Redis-->>GH: cached result
     end
-    GH-->>Svc: nil / ErrNotFound / ErrRateLimit
-    Svc->>DB: GetOrCreate repository
-    Svc->>DB: ExistsByEmailAndRepoID
-    Svc->>DB: Create subscription (confirmed=false)
-    Svc->>Email: SendConfirmation(to, token)
-    Email-->>Svc: 200 OK
-    Svc-->>API: nil
+    GH-->>Svc: exists / not found / rate limited
+    Svc->>DB: get or create repository record
+    Svc->>DB: check for duplicate subscription
+    Svc->>DB: create subscription (unconfirmed)
+    Svc->>Email: send confirmation email
+    Email-->>Svc: accepted
+    Svc-->>API: ok
     API-->>User: 200 Subscription successful
 
     User->>API: GET /api/confirm/:token
-    API->>Svc: Confirm(ctx, token)
-    Svc->>DB: GetByConfirmToken
-    Svc->>DB: Confirm(id)
+    API->>Svc: confirm(token)
+    Svc->>DB: look up subscription by token
+    Svc->>DB: mark subscription as confirmed
     API-->>User: 200 Confirmed
 ```
 
@@ -233,16 +233,16 @@ sequenceDiagram
         DB-->>Scanner: []Repository
 
         loop for each repository
-            Scanner->>GH: GET /repos/{owner}/{repo}/releases/latest
-            GH-->>Scanner: latest tag / 404 / 429
+            Scanner->>GH: fetch latest release
+            GH-->>Scanner: latest tag / no releases / rate limited
 
             alt new tag detected
-                Scanner->>DB: GetConfirmedByRepoID
-                DB-->>Scanner: []Subscriber
+                Scanner->>DB: get confirmed subscribers
+                DB-->>Scanner: subscriber list
                 loop for each subscriber
-                    Scanner->>Email: SendReleaseNotification(to, tag)
+                    Scanner->>Email: send release notification
                 end
-                Scanner->>DB: UpdateLastSeenTag(id, tag)
+                Scanner->>DB: update stored tag
             end
         end
     end
@@ -307,7 +307,7 @@ UNIQUE (email, repo_id)
 | Table | Index | Columns | Purpose |
 |---|---|---|---|
 | `repositories` | PK | `id` | Row lookup by surrogate key |
-| `repositories` | `idx_repositories_full_name` | `full_name` | `GetOrCreate` lookup by `owner/repo` string |
+| `repositories` | `idx_repositories_full_name` | `full_name` | Lookup by `owner/repo` string |
 | `subscriptions` | PK | `id` | Row lookup by surrogate key |
 | `subscriptions` | `idx_subscriptions_repo_id` | `repo_id` | Join / filter subscriptions for a given repository |
 | `subscriptions` | `idx_subscriptions_email` | `email` | List subscriptions by email address |
@@ -335,7 +335,7 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 ### Resend API
 
-`POST https://api.resend.com/emails` — two message types: confirmation and release notification. HTML bodies rendered from `html/template` templates embedded at compile time.
+Two message types are sent: confirmation and release notification. Email bodies are rendered from HTML templates bundled with the service.
 
 ---
 
@@ -343,13 +343,9 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 | Property | Value | Rationale |
 |---|---|---|
-| Scan interval | 1 hour (default) | Configurable via `SCAN_INTERVAL`; balances latency against GitHub rate limits |
-| GitHub cache TTL | 10 minutes | Reduces repeated existence checks for recently validated repos |
-| GitHub HTTP timeout | 10 seconds | Prevents scanner stalling on slow API responses |
-| HTTP server read/write timeout | 15 seconds | Mitigates slow-loris attacks |
-| DB connect timeout | 5 seconds | Fails fast at startup if PostgreSQL is unreachable |
-| Redis dial timeout | 5 seconds | Application degrades gracefully if Redis is unavailable |
-| Email HTTP timeout | 10 seconds | Prevents notification goroutine blocking on Resend latency |
+| Scan interval | 1 hour (default, configurable) | Balances notification latency against GitHub API rate limits |
+| GitHub repo-existence cache TTL | 10 minutes | Reduces repeated GitHub API calls for recently validated repos |
+| HTTP timeouts (server, GitHub, email, DB, Redis) | Short, configurable | Prevent stalls and fail fast; exact values are deployment configuration |
 
 ---
 
@@ -357,8 +353,8 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 | Component | Failure | System behaviour |
 |---|---|---|
-| **PostgreSQL** | Unavailable at scan start | `scan()` logs the error and returns early; the scan cycle is skipped entirely. HTTP handlers return 500 for any request that touches the DB. |
-| **PostgreSQL** | `UpdateLastSeenTag` fails after emails sent | Error is logged; `last_seen_tag` is not updated. The same release is re-detected on the next scan cycle — subscribers receive a duplicate notification (at-least-once delivery). |
+| **PostgreSQL** | Unavailable at scan start | The scan cycle is skipped entirely. HTTP handlers return 500 for any request that touches the DB. |
+| **PostgreSQL** | Tag update fails after emails sent | The stored tag is not updated. The same release is re-detected on the next scan cycle — subscribers receive a duplicate notification (at-least-once delivery). |
 | **GitHub API** | 429 Rate limit during scan | Scanner stops the current cycle immediately and resumes on the next tick. Repositories not yet checked in that cycle are skipped until the next scan. |
 | **GitHub API** | 404 on latest release | Treated as "no releases yet" — repository is silently skipped. |
 | **GitHub API** | Other non-200 response during scan | Error is logged; that repository is skipped for the current cycle. |
@@ -369,10 +365,10 @@ Existence responses are cached in Redis for 10 minutes. Latest release responses
 
 ## 10. Security
 
-**API key authentication** — `APIKeyAuth` middleware is implemented and checks `X-API-Key` when `API_KEY` is set, but is not currently registered in the router.
+**API key authentication** — API key middleware is implemented and checks `X-API-Key` when `API_KEY` is set, but is not currently enforced on any route.
 
 **Double opt-in** — Confirmation email is sent before the subscription is marked active. No notifications are dispatched to an unconfirmed address.
 
 **Token design** — Each subscription carries two independent UUID v4 tokens: `confirm_token` and `unsubscribe_token`. Tokens are single-use and never reused.
 
-**Input validation** — Email format and repository name are validated before any DB or API call. All SQL parameters use positional placeholders — no string interpolation.
+**Input validation** — Email format and repository name are validated before any DB or API call. All SQL queries use parameterized inputs to prevent injection.
