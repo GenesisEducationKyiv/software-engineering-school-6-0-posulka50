@@ -17,7 +17,6 @@ var (
 	// ErrNotFound is returned when a repository does not exist on GitHub.
 	ErrNotFound = errors.New("repository not found")
 
-	// ErrRateLimit is returned when the GitHub API rate limit is exceeded.
 	ErrRateLimit = errors.New("github api rate limit exceeded")
 )
 
@@ -26,7 +25,6 @@ type RepoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
-// Release represents a GitHub repository release.
 type Release struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
@@ -49,7 +47,6 @@ func NewClient(token string) *Client {
 	}
 }
 
-// CheckRepo verifies that the given owner/repo exists on GitHub.
 func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	log.Printf("github: check repo %s/%s", owner, repo)
 	resp, err := c.doRequest(ctx, fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo))
@@ -79,7 +76,6 @@ func (c *Client) CheckRepo(ctx context.Context, owner, repo string) error {
 	}
 }
 
-// GetLatestRelease returns the latest release for the given owner/repo.
 func (c *Client) GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error) {
 	log.Printf("github: fetch latest release %s/%s", owner, repo)
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)

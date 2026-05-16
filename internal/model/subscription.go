@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Repository represents a tracked GitHub repository.
 type Repository struct {
 	ID          string    `json:"id"`
 	FullName    string    `json:"full_name"`

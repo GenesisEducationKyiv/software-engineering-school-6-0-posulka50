@@ -16,7 +16,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		Repo  string `json:"repo"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgInvalidRequestBody})
+		c.JSON(http.StatusBadRequest, errorResponse{msgInvalidRequestBody})
 		return
 	}
 
@@ -24,7 +24,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	repo := req.Repo
 
 	if email == "" || repo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgEmailAndRepoRequired})
+		c.JSON(http.StatusBadRequest, errorResponse{msgEmailAndRepoRequired})
 		return
 	}
 
@@ -36,23 +36,23 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		case errors.Is(err, service.ErrInvalidEmail),
 			errors.Is(err, service.ErrInvalidRepo):
 			log.Printf("subscribe: validation error: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: err.Error()})
+			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrRepoNotFound):
 			log.Printf("subscribe: repo not found: %s", repo)
-			c.JSON(http.StatusNotFound, gin.H{jsonKeyError: err.Error()})
+			c.JSON(http.StatusNotFound, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrAlreadyExists):
 			log.Printf("subscribe: already exists: %s %s", email, repo)
-			c.JSON(http.StatusConflict, gin.H{jsonKeyError: err.Error()})
+			c.JSON(http.StatusConflict, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrRateLimit):
 			log.Printf("subscribe: github rate limit hit")
-			c.JSON(http.StatusTooManyRequests, gin.H{jsonKeyError: err.Error()})
+			c.JSON(http.StatusTooManyRequests, errorResponse{err.Error()})
 		default:
 			log.Printf("subscribe: internal error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{jsonKeyError: msgInternalError})
+			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}
 
 	log.Printf("subscribe: confirmation email sent to %s for %s", email, repo)
-	c.JSON(http.StatusOK, gin.H{jsonKeyMessage: msgSubscribeSuccess})
+	c.JSON(http.StatusOK, messageResponse{msgSubscribeSuccess})
 }
