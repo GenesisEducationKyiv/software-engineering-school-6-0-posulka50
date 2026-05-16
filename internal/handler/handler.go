@@ -1,9 +1,14 @@
 package handler
 
-const (
-	jsonKeyError   = "error"
-	jsonKeyMessage = "message"
+type errorResponse struct {
+	Error string `json:"error"`
+}
 
+type messageResponse struct {
+	Message string `json:"message"`
+}
+
+const (
 	msgInternalError        = "internal server error"
 	msgInvalidToken         = "invalid token"
 	msgTokenNotFound        = "token not found"
@@ -15,12 +20,10 @@ const (
 	msgUnsubscribeSuccess   = "Unsubscribed successfully"
 )
 
-// Handler holds the HTTP handler methods for the subscription API.
 type Handler struct {
 	svc Service
 }
 
-// New creates a new Handler with the given Service.
 func New(svc Service) *Handler {
 	return &Handler{svc: svc}
 }

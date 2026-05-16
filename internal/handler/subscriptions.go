@@ -30,7 +30,7 @@ func toResponse(s *model.Subscription) subscriptionResponse {
 func (h *Handler) GetSubscriptions(c *gin.Context) {
 	emailAddr := c.Query("email")
 	if emailAddr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: msgEmailRequired})
+		c.JSON(http.StatusBadRequest, errorResponse{msgEmailRequired})
 		return
 	}
 
@@ -38,10 +38,10 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail):
-			c.JSON(http.StatusBadRequest, gin.H{jsonKeyError: err.Error()})
+			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		default:
 			log.Printf("subscriptions: internal error for %s: %v", emailAddr, err)
-			c.JSON(http.StatusInternalServerError, gin.H{jsonKeyError: msgInternalError})
+			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}

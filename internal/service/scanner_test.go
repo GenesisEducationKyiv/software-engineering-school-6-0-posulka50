@@ -82,7 +82,7 @@ func TestScanner_SendsNotificationOnNewRelease(t *testing.T) {
 }
 
 func TestScanner_NoNotificationWhenTagUnchanged(t *testing.T) {
-	rr, sr := repoWithSubs("torvalds/linux", ptr(initialTag), "user@example.com", "id2", "unsub2")
+	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id2", "unsub2")
 	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: initialTag}}
 	em := &mockNotifier{}
 

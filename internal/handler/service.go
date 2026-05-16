@@ -6,7 +6,6 @@ import (
 	"github.com/posul/github-notifier/internal/model"
 )
 
-// Service defines the subscription operations used by HTTP handlers.
 type Service interface {
 	Subscribe(ctx context.Context, email, repo string) error
 	Confirm(ctx context.Context, token string) error

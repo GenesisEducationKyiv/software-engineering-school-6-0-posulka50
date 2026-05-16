@@ -11,13 +11,11 @@ import (
 	"github.com/posul/github-notifier/internal/metrics"
 )
 
-// ConfirmData holds the template data for subscription confirmation emails.
 type ConfirmData struct {
 	Repo       string
 	ConfirmURL string
 }
 
-// ReleaseData holds the template data for release notification emails.
 type ReleaseData struct {
 	Repo           string
 	TagName        string
@@ -29,7 +27,6 @@ type ReleaseData struct {
 
 const resendAPIURL = "https://api.resend.com/emails"
 
-// Notifier defines the interface for sending email notifications.
 type Notifier interface {
 	SendConfirmation(ctx context.Context, to string, data ConfirmData) error
 	SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error
@@ -41,7 +38,6 @@ type renderer interface {
 	RenderRelease(data ReleaseData) (string, error)
 }
 
-// Sender sends transactional emails via the Resend API.
 type Sender struct {
 	httpClient *http.Client
 	apiKey     string
@@ -49,7 +45,6 @@ type Sender struct {
 	renderer   renderer
 }
 
-// NewSender creates a new Sender using the given Resend API key and sender address.
 func NewSender(apiKey, from string) *Sender {
 	return &Sender{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -59,7 +54,6 @@ func NewSender(apiKey, from string) *Sender {
 	}
 }
 
-// SendConfirmation sends a subscription confirmation email to the given address.
 func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmData) error {
 	body, err := s.renderer.RenderConfirmation(data)
 	if err != nil {
@@ -72,7 +66,6 @@ func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmDa
 	return err
 }
 
-// SendReleaseNotification sends a new release notification email to the given address.
 func (s *Sender) SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error {
 	body, err := s.renderer.RenderRelease(data)
 	if err != nil {
