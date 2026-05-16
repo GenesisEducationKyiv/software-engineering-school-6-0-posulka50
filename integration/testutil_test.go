@@ -49,11 +49,12 @@ func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ email
 	return nil
 }
 
-// testServer wraps httptest.Server with the stubs used in each test.
+// testServer wraps httptest.Server with the stubs and DB pool used in each test.
 type testServer struct {
 	*httptest.Server
-	gh *stubGitHub
-	em *stubEmail
+	gh   *stubGitHub
+	em   *stubEmail
+	pool *pgxpool.Pool
 }
 
 // startPostgres launches a postgres:16-alpine container and returns the connection DSN.
@@ -154,5 +155,5 @@ func newTestServer(tb testing.TB) *testServer {
 	srv := httptest.NewServer(r)
 	tb.Cleanup(srv.Close)
 
-	return &testServer{Server: srv, gh: gh, em: em}
+	return &testServer{Server: srv, gh: gh, em: em, pool: pool}
 }
