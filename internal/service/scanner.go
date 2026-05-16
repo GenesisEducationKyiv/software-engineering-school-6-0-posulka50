@@ -28,7 +28,6 @@ type Scanner struct {
 	interval    time.Duration
 }
 
-// NewScanner creates a Scanner that checks repositories on the given interval.
 func NewScanner(
 	repoRepo repository.Repository,
 	subRepo repository.ScannerSubscriptionRepository,
@@ -47,7 +46,6 @@ func NewScanner(
 	}
 }
 
-// RunOnce executes a single scan pass synchronously.
 func (s *Scanner) RunOnce(ctx context.Context) {
 	s.scan(ctx)
 }

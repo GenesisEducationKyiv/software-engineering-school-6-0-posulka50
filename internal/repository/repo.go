@@ -10,24 +10,20 @@ import (
 	"github.com/posul/github-notifier/internal/model"
 )
 
-// Repository defines persistence operations for GitHub repositories.
 type Repository interface {
 	GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error)
 	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error)
 	UpdateLastSeenTag(ctx context.Context, id string, tag string) error
 }
 
-// PostgresRepoRepository is a PostgreSQL implementation of Repository.
 type PostgresRepoRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewPostgresRepoRepository creates a new PostgresRepoRepository backed by the given connection pool.
 func NewPostgresRepoRepository(db *pgxpool.Pool) *PostgresRepoRepository {
 	return &PostgresRepoRepository{db: db}
 }
 
-// GetOrCreate returns the repository with the given full name, creating it if it does not exist.
 func (r *PostgresRepoRepository) GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error) {
 	repo := &model.Repository{
 		ID:        uuid.New().String(),
@@ -47,7 +43,6 @@ func (r *PostgresRepoRepository) GetOrCreate(ctx context.Context, fullName strin
 	return repo, nil
 }
 
-// GetAllWithConfirmedSubscriptions returns all repositories that have at least one confirmed subscriber.
 func (r *PostgresRepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT r.id, r.full_name, r.last_seen_tag, r.created_at
@@ -73,7 +68,6 @@ func (r *PostgresRepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Co
 	return repos, rows.Err()
 }
 
-// UpdateLastSeenTag sets the last observed release tag for the repository with the given id.
 func (r *PostgresRepoRepository) UpdateLastSeenTag(ctx context.Context, id string, tag string) error {
 	_, err := r.db.Exec(ctx, `UPDATE repositories SET last_seen_tag = $1 WHERE id = $2`, tag, id)
 	if err != nil {

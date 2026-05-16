@@ -14,6 +14,7 @@ linters:
     - rowserrcheck
     - goprintffuncname
     # code quality
+    - errorlint
     - gocritic
     - goconst
     - gocyclo
@@ -41,7 +42,6 @@ linters:
 
     revive:
       rules:
-        - name: exported
         - name: var-naming
         - name: error-return
         - name: error-strings
@@ -52,6 +52,13 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - goconst
+          - unparam
 
 formatters:
   enable:
