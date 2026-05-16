@@ -6,16 +6,16 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -68,7 +68,6 @@ func startPostgres(tb testing.TB) string {
 		tcpostgres.WithUsername("test"),
 		tcpostgres.WithPassword("test"),
 		tcpostgres.BasicWaitStrategies(),
-		testcontainers.WithLogger(testcontainers.TestLogger(tb)),
 	)
 	testcontainers.CleanupContainer(tb, c)
 	if err != nil {
@@ -83,6 +82,7 @@ func startPostgres(tb testing.TB) string {
 }
 
 // applyMigrations runs all SQL migrations from cmd/server/migrations against dsn.
+// Uses iofs + os.DirFS to avoid file:// URL path issues on Windows.
 func applyMigrations(tb testing.TB, dsn string) {
 	tb.Helper()
 
@@ -92,14 +92,12 @@ func applyMigrations(tb testing.TB, dsn string) {
 		tb.Fatalf("resolve migrations dir: %v", err)
 	}
 
-	// Build a file:// URL that works on both Unix and Windows.
-	slash := filepath.ToSlash(absDir)
-	if !strings.HasPrefix(slash, "/") {
-		slash = "/" + slash // Windows: "C:/..." → "/C:/..."
+	d, err := iofs.New(os.DirFS(absDir), ".")
+	if err != nil {
+		tb.Fatalf("create iofs source: %v", err)
 	}
-	source := "file://" + slash
 
-	m, err := migrate.New(source, dsn)
+	m, err := migrate.NewWithSourceInstance("iofs", d, dsn)
 	if err != nil {
 		tb.Fatalf("create migrator: %v", err)
 	}
