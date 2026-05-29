@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -26,7 +26,7 @@ func (c *CachedRepoChecker) CheckRepo(ctx context.Context, owner, repo string) e
 	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
 
 	if cached, err := c.redis.Get(ctx, cacheKey).Result(); err == nil {
-		log.Printf("github: cache hit for repo %s/%s (%s)", owner, repo, cached)
+		slog.Debug("github: cache hit for repo", "owner", owner, "repo", repo, "cached", cached)
 		if cached == "notfound" {
 			return ErrNotFound
 		}

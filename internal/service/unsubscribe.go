@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/posul/github-notifier/internal/model"
 	"github.com/posul/github-notifier/internal/repository"
@@ -35,6 +35,6 @@ func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) err
 	if err := uc.subs.Delete(ctx, sub.ID); err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
-	log.Printf("service: deleted subscription id=%s email=%s", sub.ID, sub.Email)
+	slog.Info("service: subscription deleted", "id", sub.ID, "email", sub.Email)
 	return nil
 }

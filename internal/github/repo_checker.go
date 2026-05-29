@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -25,14 +25,14 @@ func NewRepoCheckerClient(token string) *RepoCheckerClient {
 }
 
 func (c *RepoCheckerClient) CheckRepo(ctx context.Context, owner, repo string) error {
-	log.Printf("github: check repo %s/%s", owner, repo)
+	slog.Debug("github: check repo", "owner", owner, "repo", repo)
 	resp, err := doRequest(ctx, c.httpClient, c.token, fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo))
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Printf("github: failed to close response body: %v", err)
+			slog.Warn("github: failed to close response body", "error", err)
 		}
 	}()
 	_, _ = io.Copy(io.Discard, resp.Body)

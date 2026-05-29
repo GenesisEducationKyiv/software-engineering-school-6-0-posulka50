@@ -2,7 +2,7 @@ package handler
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,31 +28,31 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	log.Printf("subscribe: %s → %s", email, repo)
+	slog.Info("subscribe", "email", email, "repo", repo)
 
 	err := h.subscriber.Subscribe(c.Request.Context(), email, repo)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail),
 			errors.Is(err, service.ErrInvalidRepo):
-			log.Printf("subscribe: validation error: %v", err)
+			slog.Warn("subscribe: validation error", "error", err)
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrRepoNotFound):
-			log.Printf("subscribe: repo not found: %s", repo)
+			slog.Warn("subscribe: repo not found", "repo", repo)
 			c.JSON(http.StatusNotFound, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrAlreadyExists):
-			log.Printf("subscribe: already exists: %s %s", email, repo)
+			slog.Warn("subscribe: already exists", "email", email, "repo", repo)
 			c.JSON(http.StatusConflict, errorResponse{err.Error()})
 		case errors.Is(err, service.ErrRateLimit):
-			log.Printf("subscribe: github rate limit hit")
+			slog.Warn("subscribe: github rate limit hit")
 			c.JSON(http.StatusTooManyRequests, errorResponse{err.Error()})
 		default:
-			log.Printf("subscribe: internal error: %v", err)
+			slog.Error("subscribe: internal error", "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}
 
-	log.Printf("subscribe: confirmation email sent to %s for %s", email, repo)
+	slog.Info("subscribe: confirmation email sent", "email", email, "repo", repo)
 	c.JSON(http.StatusOK, messageResponse{msgSubscribeSuccess})
 }
