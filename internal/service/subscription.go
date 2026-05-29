@@ -14,6 +14,24 @@ import (
 	"github.com/posul/github-notifier/internal/repository"
 )
 
+type subscriptionRepoStore interface {
+	GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error)
+}
+
+type subscriptionStore interface {
+	Create(ctx context.Context, sub *model.Subscription) error
+	GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error)
+	GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error)
+	GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error)
+	Confirm(ctx context.Context, id string) error
+	Delete(ctx context.Context, id string) error
+	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
+}
+
+type confirmationSender interface {
+	SendConfirmation(ctx context.Context, to string, data email.ConfirmData) error
+}
+
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-]+$`)
 
 var (
@@ -30,18 +48,18 @@ type repoChecker interface {
 }
 
 type SubscriptionService struct {
-	repoRepo    repository.Repository
-	subRepo     repository.SubscriptionRepository
+	repoRepo    subscriptionRepoStore
+	subRepo     subscriptionStore
 	github      repoChecker
-	emailSender email.Notifier
+	emailSender confirmationSender
 	baseURL     string
 }
 
 func NewSubscriptionService(
-	repoRepo repository.Repository,
-	subRepo repository.SubscriptionRepository,
+	repoRepo subscriptionRepoStore,
+	subRepo subscriptionStore,
 	githubClient repoChecker,
-	emailSender email.Notifier,
+	emailSender confirmationSender,
 	baseURL string,
 ) *SubscriptionService {
 	return &SubscriptionService{

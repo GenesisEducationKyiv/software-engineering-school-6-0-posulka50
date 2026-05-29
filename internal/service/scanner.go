@@ -11,28 +11,40 @@ import (
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
-	"github.com/posul/github-notifier/internal/repository"
 )
 
 type releaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*githubclient.Release, error)
 }
 
+type scannerRepoStore interface {
+	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error)
+	UpdateLastSeenTag(ctx context.Context, id string, tag string) error
+}
+
+type scannerSubStore interface {
+	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
+}
+
+type releaseSender interface {
+	SendReleaseNotification(ctx context.Context, to string, data email.ReleaseData) error
+}
+
 // Scanner polls GitHub for new releases and notifies subscribers by email.
 type Scanner struct {
-	repoRepo    repository.Repository
-	subRepo     repository.ScannerSubscriptionRepository
+	repoRepo    scannerRepoStore
+	subRepo     scannerSubStore
 	github      releaseChecker
-	emailSender email.Notifier
+	emailSender releaseSender
 	baseURL     string
 	interval    time.Duration
 }
 
 func NewScanner(
-	repoRepo repository.Repository,
-	subRepo repository.ScannerSubscriptionRepository,
+	repoRepo scannerRepoStore,
+	subRepo scannerSubStore,
 	githubClient releaseChecker,
-	emailSender email.Notifier,
+	emailSender releaseSender,
 	baseURL string,
 	interval time.Duration,
 ) *Scanner {

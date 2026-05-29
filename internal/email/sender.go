@@ -27,11 +27,6 @@ type ReleaseData struct {
 
 const resendAPIURL = "https://api.resend.com/emails"
 
-type Notifier interface {
-	SendConfirmation(ctx context.Context, to string, data ConfirmData) error
-	SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error
-}
-
 // renderer defines the interface for rendering email HTML bodies.
 type renderer interface {
 	RenderConfirmation(data ConfirmData) (string, error)
