@@ -168,21 +168,21 @@ func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ email
 	return nil
 }
 
-func newSubscribeUC(repoRepo *mockRepoRepo, subRepo *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscribeUseCase {
-	return service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://localhost:8080")
+func newSubscribeUC(repos *mockRepoRepo, subs *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscribeUseCase {
+	return service.NewSubscribeUseCase(repos, subs, gh, em, "http://localhost:8080")
 }
 
 func TestSubscribe_Success(t *testing.T) {
-	repoRepo := newMockRepoRepo()
-	subRepo := newMockSubRepo()
+	repos := newMockRepoRepo()
+	subs := newMockSubRepo()
 	em := &mockEmail{}
-	uc := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, em)
+	uc := newSubscribeUC(repos, subs, &mockGitHub{}, em)
 
 	if err := uc.Subscribe(context.Background(), "user@example.com", "golang/go"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(subRepo.subs) != 1 {
-		t.Fatalf("expected 1 subscription in repo, got %d", len(subRepo.subs))
+	if len(subs.subs) != 1 {
+		t.Fatalf("expected 1 subscription in repo, got %d", len(subs.subs))
 	}
 	if !em.confirmCalled {
 		t.Error("expected confirmation email to be sent")
@@ -225,9 +225,9 @@ func TestSubscribe_RateLimit(t *testing.T) {
 }
 
 func TestSubscribe_Duplicate(t *testing.T) {
-	repoRepo := newMockRepoRepo()
-	subRepo := newMockSubRepo()
-	uc := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
+	repos := newMockRepoRepo()
+	subs := newMockSubRepo()
+	uc := newSubscribeUC(repos, subs, &mockGitHub{}, &mockEmail{})
 
 	_ = uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
@@ -237,24 +237,24 @@ func TestSubscribe_Duplicate(t *testing.T) {
 }
 
 func TestConfirm_Success(t *testing.T) {
-	repoRepo := newMockRepoRepo()
-	subRepo := newMockSubRepo()
-	_ = newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
+	repos := newMockRepoRepo()
+	subs := newMockSubRepo()
+	_ = newSubscribeUC(repos, subs, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
 
 	var confirmToken string
-	for _, s := range subRepo.subs {
+	for _, s := range subs.subs {
 		confirmToken = s.ConfirmToken
 	}
 
-	if err := service.NewConfirmUseCase(subRepo).Confirm(context.Background(), confirmToken); err != nil {
+	if err := service.NewConfirmUseCase(subs).Confirm(context.Background(), confirmToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 
 	var id string
-	for _, s := range subRepo.subs {
+	for _, s := range subs.subs {
 		id = s.ID
 	}
-	if !subRepo.confirmedIDs[id] {
+	if !subs.confirmedIDs[id] {
 		t.Error("expected subscription to be confirmed")
 	}
 }
@@ -267,19 +267,19 @@ func TestConfirm_TokenNotFound(t *testing.T) {
 }
 
 func TestUnsubscribe_Success(t *testing.T) {
-	repoRepo := newMockRepoRepo()
-	subRepo := newMockSubRepo()
-	_ = newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
+	repos := newMockRepoRepo()
+	subs := newMockSubRepo()
+	_ = newSubscribeUC(repos, subs, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
 
 	var unsubToken string
-	for _, s := range subRepo.subs {
+	for _, s := range subs.subs {
 		unsubToken = s.UnsubscribeToken
 	}
 
-	if err := service.NewUnsubscribeUseCase(subRepo).Unsubscribe(context.Background(), unsubToken); err != nil {
+	if err := service.NewUnsubscribeUseCase(subs).Unsubscribe(context.Background(), unsubToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
-	if len(subRepo.subs) != 0 {
+	if len(subs.subs) != 0 {
 		t.Error("expected subscription to be deleted")
 	}
 }
@@ -299,29 +299,29 @@ func TestGetSubscriptions_InvalidEmail(t *testing.T) {
 }
 
 func TestGetSubscriptions_ReturnsOnlyConfirmed(t *testing.T) {
-	repoRepo := newMockRepoRepo()
-	subRepo := newMockSubRepo()
-	subscribeUC := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
+	repos := newMockRepoRepo()
+	subs := newMockSubRepo()
+	subscribeUC := newSubscribeUC(repos, subs, &mockGitHub{}, &mockEmail{})
 
 	_ = subscribeUC.Subscribe(context.Background(), "user@example.com", "golang/go")
 	_ = subscribeUC.Subscribe(context.Background(), "user@example.com", "gin-gonic/gin")
 
 	var firstConfirmToken string
-	for _, s := range subRepo.subs {
+	for _, s := range subs.subs {
 		if s.Repo == "golang/go" {
 			firstConfirmToken = s.ConfirmToken
 		}
 	}
-	_ = service.NewConfirmUseCase(subRepo).Confirm(context.Background(), firstConfirmToken)
+	_ = service.NewConfirmUseCase(subs).Confirm(context.Background(), firstConfirmToken)
 
-	subs, err := service.NewGetSubscriptionsUseCase(subRepo).GetSubscriptions(context.Background(), "user@example.com")
+	result, err := service.NewGetSubscriptionsUseCase(subs).GetSubscriptions(context.Background(), "user@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(subs) != 1 {
-		t.Fatalf("expected 1 confirmed subscription, got %d", len(subs))
+	if len(result) != 1 {
+		t.Fatalf("expected 1 confirmed subscription, got %d", len(result))
 	}
-	if subs[0].Repo != "golang/go" {
-		t.Errorf("expected golang/go, got %s", subs[0].Repo)
+	if result[0].Repo != "golang/go" {
+		t.Errorf("expected golang/go, got %s", result[0].Repo)
 	}
 }

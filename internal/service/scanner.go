@@ -32,8 +32,8 @@ type releaseSender interface {
 
 // Scanner polls GitHub for new releases and notifies subscribers by email.
 type Scanner struct {
-	repoRepo    scannerRepoStore
-	subRepo     scannerSubStore
+	repos       scannerRepoStore
+	subs        scannerSubStore
 	github      releaseChecker
 	emailSender releaseSender
 	baseURL     string
@@ -41,16 +41,16 @@ type Scanner struct {
 }
 
 func NewScanner(
-	repoRepo scannerRepoStore,
-	subRepo scannerSubStore,
+	repos scannerRepoStore,
+	subs scannerSubStore,
 	githubClient releaseChecker,
 	emailSender releaseSender,
 	baseURL string,
 	interval time.Duration,
 ) *Scanner {
 	return &Scanner{
-		repoRepo:    repoRepo,
-		subRepo:     subRepo,
+		repos:       repos,
+		subs:        subs,
 		github:      githubClient,
 		emailSender: emailSender,
 		baseURL:     baseURL,
@@ -85,7 +85,7 @@ func (s *Scanner) Start(ctx context.Context) {
 func (s *Scanner) scan(ctx context.Context) {
 	log.Println("scanner: running scan")
 
-	repos, err := s.repoRepo.GetAllWithConfirmedSubscriptions(ctx)
+	repos, err := s.repos.GetAllWithConfirmedSubscriptions(ctx)
 	if err != nil {
 		log.Printf("scanner: failed to fetch repositories: %v", err)
 		return
@@ -125,7 +125,7 @@ func (s *Scanner) scan(ctx context.Context) {
 
 func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, release *githubclient.Release) {
 	if repo.LastSeenTag == nil {
-		if err := s.repoRepo.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
+		if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
 			log.Printf("scanner: failed to set initial last_seen_tag for %s: %v", repo.FullName, err)
 		}
 		return
@@ -138,7 +138,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	log.Printf("scanner: %s — new release %s → %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
-	subs, err := s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
+	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
 		log.Printf("scanner: failed to fetch subscribers for %s: %v", repo.FullName, err)
 		return
@@ -162,7 +162,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 		}
 	}
 
-	if err := s.repoRepo.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
+	if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
 		log.Printf("scanner: failed to update last_seen_tag for %s: %v", repo.FullName, err)
 	}
 }

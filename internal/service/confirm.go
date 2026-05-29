@@ -16,15 +16,15 @@ type confirmSubStore interface {
 }
 
 type ConfirmUseCase struct {
-	subRepo confirmSubStore
+	subs confirmSubStore
 }
 
-func NewConfirmUseCase(subRepo confirmSubStore) *ConfirmUseCase {
-	return &ConfirmUseCase{subRepo: subRepo}
+func NewConfirmUseCase(subs confirmSubStore) *ConfirmUseCase {
+	return &ConfirmUseCase{subs: subs}
 }
 
 func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
-	sub, err := uc.subRepo.GetByConfirmToken(ctx, token)
+	sub, err := uc.subs.GetByConfirmToken(ctx, token)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrNotFound
@@ -32,7 +32,7 @@ func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
 		return fmt.Errorf("get subscription by confirm token: %w", err)
 	}
 
-	if err := uc.subRepo.Confirm(ctx, sub.ID); err != nil {
+	if err := uc.subs.Confirm(ctx, sub.ID); err != nil {
 		return fmt.Errorf("confirm subscription: %w", err)
 	}
 	log.Printf("service: confirmed subscription id=%s", sub.ID)

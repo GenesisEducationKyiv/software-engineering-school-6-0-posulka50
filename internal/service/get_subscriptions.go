@@ -12,11 +12,11 @@ type getSubsStore interface {
 }
 
 type GetSubscriptionsUseCase struct {
-	subRepo getSubsStore
+	subs getSubsStore
 }
 
-func NewGetSubscriptionsUseCase(subRepo getSubsStore) *GetSubscriptionsUseCase {
-	return &GetSubscriptionsUseCase{subRepo: subRepo}
+func NewGetSubscriptionsUseCase(subs getSubsStore) *GetSubscriptionsUseCase {
+	return &GetSubscriptionsUseCase{subs: subs}
 }
 
 func (uc *GetSubscriptionsUseCase) GetSubscriptions(ctx context.Context, emailAddr string) ([]*model.Subscription, error) {
@@ -24,7 +24,7 @@ func (uc *GetSubscriptionsUseCase) GetSubscriptions(ctx context.Context, emailAd
 		return nil, ErrInvalidEmail
 	}
 
-	subs, err := uc.subRepo.GetByEmail(ctx, emailAddr)
+	subs, err := uc.subs.GetByEmail(ctx, emailAddr)
 	if err != nil {
 		return nil, fmt.Errorf("get subscriptions: %w", err)
 	}

@@ -35,23 +35,23 @@ type confirmationSender interface {
 }
 
 type SubscribeUseCase struct {
-	repoRepo    subscriptionRepoStore
-	subRepo     subscribeSubStore
+	repos       subscriptionRepoStore
+	subs        subscribeSubStore
 	github      repoChecker
 	emailSender confirmationSender
 	baseURL     string
 }
 
 func NewSubscribeUseCase(
-	repoRepo subscriptionRepoStore,
-	subRepo subscribeSubStore,
+	repos subscriptionRepoStore,
+	subs subscribeSubStore,
 	githubClient repoChecker,
 	emailSender confirmationSender,
 	baseURL string,
 ) *SubscribeUseCase {
 	return &SubscribeUseCase{
-		repoRepo:    repoRepo,
-		subRepo:     subRepo,
+		repos:       repos,
+		subs:        subs,
 		github:      githubClient,
 		emailSender: emailSender,
 		baseURL:     baseURL,
@@ -80,12 +80,12 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 		}
 	}
 
-	repoRecord, err := uc.repoRepo.GetOrCreate(ctx, repoName)
+	repoRecord, err := uc.repos.GetOrCreate(ctx, repoName)
 	if err != nil {
 		return fmt.Errorf("get or create repository: %w", err)
 	}
 
-	exists, err := uc.subRepo.ExistsByEmailAndRepoID(ctx, emailAddr, repoRecord.ID)
+	exists, err := uc.subs.ExistsByEmailAndRepoID(ctx, emailAddr, repoRecord.ID)
 	if err != nil {
 		return fmt.Errorf("check subscription exists: %w", err)
 	}
@@ -96,7 +96,7 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 	sub := model.NewSubscription(emailAddr, repoRecord.ID, repoName)
 
 	log.Printf("service: creating subscription %s → %s", emailAddr, repoName)
-	if err := uc.subRepo.Create(ctx, sub); err != nil {
+	if err := uc.subs.Create(ctx, sub); err != nil {
 		if errors.Is(err, repository.ErrAlreadyExists) {
 			return ErrAlreadyExists
 		}
@@ -108,7 +108,7 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 		Repo:       repoName,
 		ConfirmURL: confirmURL,
 	}); err != nil {
-		_ = uc.subRepo.Delete(ctx, sub.ID)
+		_ = uc.subs.Delete(ctx, sub.ID)
 		return fmt.Errorf("send confirmation email: %w", err)
 	}
 

@@ -16,15 +16,15 @@ type unsubscribeSubStore interface {
 }
 
 type UnsubscribeUseCase struct {
-	subRepo unsubscribeSubStore
+	subs unsubscribeSubStore
 }
 
-func NewUnsubscribeUseCase(subRepo unsubscribeSubStore) *UnsubscribeUseCase {
-	return &UnsubscribeUseCase{subRepo: subRepo}
+func NewUnsubscribeUseCase(subs unsubscribeSubStore) *UnsubscribeUseCase {
+	return &UnsubscribeUseCase{subs: subs}
 }
 
 func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) error {
-	sub, err := uc.subRepo.GetByUnsubscribeToken(ctx, token)
+	sub, err := uc.subs.GetByUnsubscribeToken(ctx, token)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrNotFound
@@ -32,7 +32,7 @@ func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) err
 		return fmt.Errorf("get subscription by unsubscribe token: %w", err)
 	}
 
-	if err := uc.subRepo.Delete(ctx, sub.ID); err != nil {
+	if err := uc.subs.Delete(ctx, sub.ID); err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 	log.Printf("service: deleted subscription id=%s email=%s", sub.ID, sub.Email)
