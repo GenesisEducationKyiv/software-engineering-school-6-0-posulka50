@@ -40,12 +40,12 @@ type Sender struct {
 	renderer   renderer
 }
 
-func NewSender(apiKey, from string) *Sender {
+func NewSender(apiKey, from string, r renderer) *Sender {
 	return &Sender{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		apiKey:     apiKey,
 		from:       from,
-		renderer:   NewTemplateRenderer(),
+		renderer:   r,
 	}
 }
 

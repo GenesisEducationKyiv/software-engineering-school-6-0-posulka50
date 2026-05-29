@@ -182,7 +182,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	repoRepo := repository.NewPostgresRepoRepository(dbPool)
 	subRepo := repository.NewPostgresRepository(dbPool)
 	baseClient := githubclient.NewClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom)
+	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, email.NewTemplateRenderer())
 
 	var repoChecker githubclient.RepoChecker = baseClient
 	if redisClient != nil {
