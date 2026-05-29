@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -27,7 +27,7 @@ func (c *CachedReleaseFetcher) GetLatestRelease(ctx context.Context, owner, repo
 	cacheKey := fmt.Sprintf("github:release:%s/%s", owner, repo)
 
 	if cached, err := c.redis.Get(ctx, cacheKey).Result(); err == nil {
-		log.Printf("github: cache hit for release %s/%s", owner, repo)
+		slog.Debug("github: cache hit for release", "owner", owner, "repo", repo)
 		if cached == "notfound" {
 			return nil, ErrNotFound
 		}

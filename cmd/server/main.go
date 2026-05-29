@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,14 +30,16 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("startup failed", "error", err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
 	if err := godotenv.Load(); err != nil {
-		log.Printf("warn: .env file not found or unreadable (%v), using environment variables", err)
+		slog.Warn(".env file not found, using environment variables", "error", err)
 	}
 
 	cfg := config.Load()
@@ -51,7 +53,7 @@ func run() error {
 	if err = runMigrations(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("migrations failed: %w", err)
 	}
-	log.Println("migrations applied")
+	slog.Info("migrations applied")
 
 	redisClient := initRedis(cfg.RedisURL)
 
@@ -66,9 +68,10 @@ func run() error {
 	srv := newServer(cfg.Port, router)
 
 	go func() {
-		log.Printf("server listening on :%s", cfg.Port)
+		slog.Info("server listening", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
+			slog.Error("server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -76,15 +79,15 @@ func run() error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("shutting down gracefully...")
+	slog.Info("shutting down gracefully")
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("server forced to shutdown: %v", err)
+		slog.Warn("server forced to shutdown", "error", err)
 	}
-	log.Println("server stopped")
+	slog.Info("server stopped")
 	return nil
 }
 
@@ -107,7 +110,7 @@ func initDB(databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 
-	log.Println("database connected")
+	slog.Info("database connected")
 	return pool, nil
 }
 
@@ -118,7 +121,7 @@ func initRedis(redisURL string) *redis.Client {
 
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
-		log.Printf("warn: invalid REDIS_URL: %v", err)
+		slog.Warn("invalid REDIS_URL", "error", err)
 		return nil
 	}
 
@@ -132,11 +135,11 @@ func initRedis(redisURL string) *redis.Client {
 	defer pingCancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
-		log.Printf("warn: redis not available (%v), caching disabled", err)
+		slog.Warn("redis not available, caching disabled", "error", err)
 		return nil
 	}
 
-	log.Println("redis connected")
+	slog.Info("redis connected")
 	return client
 }
 
@@ -145,6 +148,7 @@ func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(middleware.Logger())
 	router.Use(middleware.Prometheus())
 
 	api := router.Group("/api")
@@ -208,7 +212,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {
-		log.Printf("warn: invalid SCAN_INTERVAL %q, defaulting to 1h", cfg.ScanInterval)
+		slog.Warn("invalid SCAN_INTERVAL, defaulting to 1h", "value", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
 	scanner := service.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
@@ -229,10 +233,10 @@ func runMigrations(databaseURL string) error {
 	defer func() {
 		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
-			log.Printf("migrate close source error: %v", sourceErr)
+			slog.Warn("migrate close source error", "error", sourceErr)
 		}
 		if dbErr != nil {
-			log.Printf("migrate close db error: %v", dbErr)
+			slog.Warn("migrate close db error", "error", dbErr)
 		}
 	}()
 

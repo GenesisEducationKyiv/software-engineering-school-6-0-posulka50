@@ -1,0 +1,18 @@
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    json.keys_under_root: true
+    json.add_error_key: true
+    json.message_key: msg
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "github-notifier-%{+yyyy.MM.dd}"
+
+setup.ilm.enabled: false
+setup.template.name: "github-notifier"
+setup.template.pattern: "github-notifier-*"

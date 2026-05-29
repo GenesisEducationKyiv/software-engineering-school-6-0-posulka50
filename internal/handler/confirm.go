@@ -2,7 +2,7 @@ package handler
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +14,7 @@ import (
 func (h *Handler) Confirm(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
-		log.Printf("confirm: invalid token format: %s", token)
+		slog.Warn("confirm: invalid token format", "token", token)
 		c.JSON(http.StatusBadRequest, errorResponse{msgInvalidToken})
 		return
 	}
@@ -23,15 +23,15 @@ func (h *Handler) Confirm(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
-			log.Printf("confirm: token not found: %s", token)
+			slog.Warn("confirm: token not found", "token", token)
 			c.JSON(http.StatusNotFound, errorResponse{msgTokenNotFound})
 		default:
-			log.Printf("confirm: internal error: %v", err)
+			slog.Error("confirm: internal error", "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}
 
-	log.Printf("confirm: subscription confirmed for token %s", token)
+	slog.Info("confirm: subscription confirmed", "token", token)
 	c.JSON(http.StatusOK, messageResponse{msgConfirmSuccess})
 }

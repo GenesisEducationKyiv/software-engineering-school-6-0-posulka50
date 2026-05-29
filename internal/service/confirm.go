@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/posul/github-notifier/internal/model"
 	"github.com/posul/github-notifier/internal/repository"
@@ -35,6 +35,6 @@ func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
 	if err := uc.subs.Confirm(ctx, sub.ID); err != nil {
 		return fmt.Errorf("confirm subscription: %w", err)
 	}
-	log.Printf("service: confirmed subscription id=%s", sub.ID)
+	slog.Info("service: subscription confirmed", "id", sub.ID)
 	return nil
 }
