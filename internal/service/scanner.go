@@ -10,6 +10,7 @@ import (
 
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
+	"github.com/posul/github-notifier/internal/metrics"
 	"github.com/posul/github-notifier/internal/model"
 )
 
@@ -84,10 +85,12 @@ func (s *Scanner) Start(ctx context.Context) {
 
 func (s *Scanner) scan(ctx context.Context) {
 	slog.Info("scanner: running scan")
+	start := time.Now()
 
 	repos, err := s.repos.GetAllWithConfirmedSubscriptions(ctx)
 	if err != nil {
 		slog.Error("scanner: failed to fetch repositories", "error", err)
+		metrics.ScannerRunsTotal.WithLabelValues("error").Inc()
 		return
 	}
 
@@ -120,6 +123,8 @@ func (s *Scanner) scan(ctx context.Context) {
 		s.processRepo(ctx, repo, release)
 	}
 
+	metrics.ScannerRunsTotal.WithLabelValues("success").Inc()
+	metrics.ScannerDuration.Observe(time.Since(start).Seconds())
 	slog.Info("scanner: scan complete")
 }
 
@@ -136,6 +141,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 		return
 	}
 
+	metrics.ReleasesDetectedTotal.Inc()
 	slog.Info("scanner: new release detected", "repo", repo.FullName, "from", *repo.LastSeenTag, "to", release.TagName)
 
 	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
