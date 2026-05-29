@@ -19,7 +19,7 @@ func (h *Handler) Confirm(c *gin.Context) {
 		return
 	}
 
-	err := h.svc.Confirm(c.Request.Context(), token)
+	err := h.confirmer.Confirm(c.Request.Context(), token)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):

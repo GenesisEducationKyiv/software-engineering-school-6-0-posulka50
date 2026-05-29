@@ -34,7 +34,7 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 		return
 	}
 
-	subs, err := h.svc.GetSubscriptions(c.Request.Context(), emailAddr)
+	subs, err := h.subscriptionLister.GetSubscriptions(c.Request.Context(), emailAddr)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail):

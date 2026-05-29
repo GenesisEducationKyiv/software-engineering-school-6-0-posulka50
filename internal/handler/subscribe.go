@@ -30,7 +30,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 
 	log.Printf("subscribe: %s → %s", email, repo)
 
-	err := h.svc.Subscribe(c.Request.Context(), email, repo)
+	err := h.subscriber.Subscribe(c.Request.Context(), email, repo)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail),

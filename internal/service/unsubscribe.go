@@ -1,0 +1,40 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+
+	"github.com/posul/github-notifier/internal/model"
+	"github.com/posul/github-notifier/internal/repository"
+)
+
+type unsubscribeSubStore interface {
+	GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error)
+	Delete(ctx context.Context, id string) error
+}
+
+type UnsubscribeUseCase struct {
+	subRepo unsubscribeSubStore
+}
+
+func NewUnsubscribeUseCase(subRepo unsubscribeSubStore) *UnsubscribeUseCase {
+	return &UnsubscribeUseCase{subRepo: subRepo}
+}
+
+func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) error {
+	sub, err := uc.subRepo.GetByUnsubscribeToken(ctx, token)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("get subscription by unsubscribe token: %w", err)
+	}
+
+	if err := uc.subRepo.Delete(ctx, sub.ID); err != nil {
+		return fmt.Errorf("delete subscription: %w", err)
+	}
+	log.Printf("service: deleted subscription id=%s email=%s", sub.ID, sub.Email)
+	return nil
+}

@@ -168,17 +168,17 @@ func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ email
 	return nil
 }
 
-func newSvc(repoRepo *mockRepoRepo, subRepo *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscriptionService {
-	return service.NewSubscriptionService(repoRepo, subRepo, gh, em, "http://localhost:8080")
+func newSubscribeUC(repoRepo *mockRepoRepo, subRepo *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscribeUseCase {
+	return service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://localhost:8080")
 }
 
 func TestSubscribe_Success(t *testing.T) {
 	repoRepo := newMockRepoRepo()
 	subRepo := newMockSubRepo()
 	em := &mockEmail{}
-	svc := newSvc(repoRepo, subRepo, &mockGitHub{}, em)
+	uc := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, em)
 
-	if err := svc.Subscribe(context.Background(), "user@example.com", "golang/go"); err != nil {
+	if err := uc.Subscribe(context.Background(), "user@example.com", "golang/go"); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if len(subRepo.subs) != 1 {
@@ -190,8 +190,8 @@ func TestSubscribe_Success(t *testing.T) {
 }
 
 func TestSubscribe_InvalidEmail(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
-	err := svc.Subscribe(context.Background(), "not-an-email", "golang/go")
+	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
+	err := uc.Subscribe(context.Background(), "not-an-email", "golang/go")
 	if !errors.Is(err, service.ErrInvalidEmail) {
 		t.Fatalf("expected ErrInvalidEmail, got %v", err)
 	}
@@ -199,9 +199,9 @@ func TestSubscribe_InvalidEmail(t *testing.T) {
 
 func TestSubscribe_InvalidRepoFormat(t *testing.T) {
 	cases := []string{"justarepo", "", "too/many/slashes", "/noleft", "noright/"}
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
+	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
 	for _, tc := range cases {
-		err := svc.Subscribe(context.Background(), "user@example.com", tc)
+		err := uc.Subscribe(context.Background(), "user@example.com", tc)
 		if !errors.Is(err, service.ErrInvalidRepo) {
 			t.Errorf("repo=%q: expected ErrInvalidRepo, got %v", tc, err)
 		}
@@ -209,16 +209,16 @@ func TestSubscribe_InvalidRepoFormat(t *testing.T) {
 }
 
 func TestSubscribe_RepoNotFound(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrNotFound}, &mockEmail{})
-	err := svc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrNotFound}, &mockEmail{})
+	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	if !errors.Is(err, service.ErrRepoNotFound) {
 		t.Fatalf("expected ErrRepoNotFound, got %v", err)
 	}
 }
 
 func TestSubscribe_RateLimit(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrRateLimit}, &mockEmail{})
-	err := svc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrRateLimit}, &mockEmail{})
+	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	if !errors.Is(err, service.ErrRateLimit) {
 		t.Fatalf("expected ErrRateLimit, got %v", err)
 	}
@@ -227,10 +227,10 @@ func TestSubscribe_RateLimit(t *testing.T) {
 func TestSubscribe_Duplicate(t *testing.T) {
 	repoRepo := newMockRepoRepo()
 	subRepo := newMockSubRepo()
-	svc := newSvc(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
+	uc := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
 
-	_ = svc.Subscribe(context.Background(), "user@example.com", "golang/go")
-	err := svc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	_ = uc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	if !errors.Is(err, service.ErrAlreadyExists) {
 		t.Fatalf("expected ErrAlreadyExists, got %v", err)
 	}
@@ -239,15 +239,14 @@ func TestSubscribe_Duplicate(t *testing.T) {
 func TestConfirm_Success(t *testing.T) {
 	repoRepo := newMockRepoRepo()
 	subRepo := newMockSubRepo()
-	svc := newSvc(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
-	_ = svc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	_ = newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
 
 	var confirmToken string
 	for _, s := range subRepo.subs {
 		confirmToken = s.ConfirmToken
 	}
 
-	if err := svc.Confirm(context.Background(), confirmToken); err != nil {
+	if err := service.NewConfirmUseCase(subRepo).Confirm(context.Background(), confirmToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 
@@ -261,8 +260,7 @@ func TestConfirm_Success(t *testing.T) {
 }
 
 func TestConfirm_TokenNotFound(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
-	err := svc.Confirm(context.Background(), "nonexistent-token")
+	err := service.NewConfirmUseCase(newMockSubRepo()).Confirm(context.Background(), "nonexistent-token")
 	if !errors.Is(err, service.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -271,15 +269,14 @@ func TestConfirm_TokenNotFound(t *testing.T) {
 func TestUnsubscribe_Success(t *testing.T) {
 	repoRepo := newMockRepoRepo()
 	subRepo := newMockSubRepo()
-	svc := newSvc(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
-	_ = svc.Subscribe(context.Background(), "user@example.com", "golang/go")
+	_ = newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{}).Subscribe(context.Background(), "user@example.com", "golang/go")
 
 	var unsubToken string
 	for _, s := range subRepo.subs {
 		unsubToken = s.UnsubscribeToken
 	}
 
-	if err := svc.Unsubscribe(context.Background(), unsubToken); err != nil {
+	if err := service.NewUnsubscribeUseCase(subRepo).Unsubscribe(context.Background(), unsubToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 	if len(subRepo.subs) != 0 {
@@ -288,16 +285,14 @@ func TestUnsubscribe_Success(t *testing.T) {
 }
 
 func TestUnsubscribe_TokenNotFound(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
-	err := svc.Unsubscribe(context.Background(), "bad-token")
+	err := service.NewUnsubscribeUseCase(newMockSubRepo()).Unsubscribe(context.Background(), "bad-token")
 	if !errors.Is(err, service.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestGetSubscriptions_InvalidEmail(t *testing.T) {
-	svc := newSvc(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
-	_, err := svc.GetSubscriptions(context.Background(), "notanemail")
+	_, err := service.NewGetSubscriptionsUseCase(newMockSubRepo()).GetSubscriptions(context.Background(), "notanemail")
 	if !errors.Is(err, service.ErrInvalidEmail) {
 		t.Fatalf("expected ErrInvalidEmail, got %v", err)
 	}
@@ -306,10 +301,10 @@ func TestGetSubscriptions_InvalidEmail(t *testing.T) {
 func TestGetSubscriptions_ReturnsOnlyConfirmed(t *testing.T) {
 	repoRepo := newMockRepoRepo()
 	subRepo := newMockSubRepo()
-	svc := newSvc(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
+	subscribeUC := newSubscribeUC(repoRepo, subRepo, &mockGitHub{}, &mockEmail{})
 
-	_ = svc.Subscribe(context.Background(), "user@example.com", "golang/go")
-	_ = svc.Subscribe(context.Background(), "user@example.com", "gin-gonic/gin")
+	_ = subscribeUC.Subscribe(context.Background(), "user@example.com", "golang/go")
+	_ = subscribeUC.Subscribe(context.Background(), "user@example.com", "gin-gonic/gin")
 
 	var firstConfirmToken string
 	for _, s := range subRepo.subs {
@@ -317,9 +312,9 @@ func TestGetSubscriptions_ReturnsOnlyConfirmed(t *testing.T) {
 			firstConfirmToken = s.ConfirmToken
 		}
 	}
-	_ = svc.Confirm(context.Background(), firstConfirmToken)
+	_ = service.NewConfirmUseCase(subRepo).Confirm(context.Background(), firstConfirmToken)
 
-	subs, err := svc.GetSubscriptions(context.Background(), "user@example.com")
+	subs, err := service.NewGetSubscriptionsUseCase(subRepo).GetSubscriptions(context.Background(), "user@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

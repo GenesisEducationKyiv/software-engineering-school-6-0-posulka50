@@ -33,10 +33,10 @@ func (m *mockService) GetSubscriptions(ctx context.Context, email string) ([]*mo
 	return subs, args.Error(1)
 }
 
-func newTestRouter(svc handler.Service) *gin.Engine {
+func newTestRouter(svc *mockService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := handler.New(svc)
+	h := handler.New(svc, svc, svc, svc)
 	api := r.Group("/api")
 	api.POST("/subscribe", h.Subscribe)
 	api.GET("/confirm/:token", h.Confirm)
