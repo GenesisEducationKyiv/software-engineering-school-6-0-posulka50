@@ -181,22 +181,25 @@ func newServer(port string, handler http.Handler) *http.Server {
 func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (*service.SubscriptionService, *service.Scanner) {
 	repoRepo := repository.NewPostgresRepoRepository(dbPool)
 	subRepo := repository.NewPostgresRepository(dbPool)
-	baseClient := githubclient.NewClient(cfg.GitHubToken)
+	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
+	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
 	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, email.NewTemplateRenderer())
 
-	var repoChecker githubclient.RepoChecker = baseClient
+	var checker githubclient.RepoChecker = repoCheckerClient
+	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient
 	if redisClient != nil {
-		repoChecker = githubclient.NewCachedClient(baseClient, redisClient)
+		checker = githubclient.NewCachedRepoChecker(repoCheckerClient, redisClient)
+		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subService := service.NewSubscriptionService(repoRepo, subRepo, repoChecker, emailSender, cfg.BaseURL)
+	subService := service.NewSubscriptionService(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {
 		log.Printf("warn: invalid SCAN_INTERVAL %q, defaulting to 1h", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := service.NewScanner(repoRepo, subRepo, baseClient, emailSender, cfg.BaseURL, scanInterval)
+	scanner := service.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
 
 	return subService, scanner
 }
