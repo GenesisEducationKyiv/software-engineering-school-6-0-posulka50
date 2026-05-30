@@ -5,12 +5,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const labelStatus = "status"
+
 var (
 	// HTTP RED metrics
 	HTTPRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "http_requests_total",
 		Help: "Total number of HTTP requests processed.",
-	}, []string{"method", "path", "status"})
+	}, []string{"method", "path", labelStatus})
 
 	HTTPRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "http_request_duration_seconds",
@@ -33,7 +35,7 @@ var (
 	GithubAPIRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "github_api_requests_total",
 		Help: "Total GitHub API requests made.",
-	}, []string{"endpoint", "status"})
+	}, []string{"endpoint", labelStatus})
 
 	// Subscription lifecycle RED metrics
 	SubscriptionsCreatedTotal = promauto.NewCounter(prometheus.CounterOpts{
@@ -55,7 +57,7 @@ var (
 	ScannerRunsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "scanner_runs_total",
 		Help: "Total scanner runs by result status.",
-	}, []string{"status"})
+	}, []string{labelStatus})
 
 	ScannerDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "scanner_run_duration_seconds",
