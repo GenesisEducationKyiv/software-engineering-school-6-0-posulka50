@@ -67,7 +67,10 @@ func testMain(m *testing.M) int {
 }
 
 func runMigrations(dsn string) {
-	_, callerFile, _, _ := runtime.Caller(0)
+	_, callerFile, _, ok := runtime.Caller(0)
+	if !ok {
+		log.Fatal("runtime.Caller failed: cannot determine source file path")
+	}
 	absDir, err := filepath.Abs(filepath.Join(filepath.Dir(callerFile), "..", "cmd", "server", "migrations"))
 	if err != nil {
 		log.Fatalf("resolve migrations dir: %v", err)
