@@ -5,19 +5,18 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/posul/github-notifier/internal/email"
@@ -26,12 +25,74 @@ import (
 	"github.com/posul/github-notifier/internal/service"
 )
 
-// stubGitHub satisfies the unexported service.repoChecker interface via duck typing.
+var sharedPool *pgxpool.Pool
+
+func TestMain(m *testing.M) {
+	os.Exit(testMain(m))
+}
+
+func testMain(m *testing.M) int {
+	ctx := context.Background()
+
+	c, err := tcpostgres.Run(ctx,
+		"postgres:16-alpine",
+		tcpostgres.WithDatabase("testdb"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
+		tcpostgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		log.Printf("startPostgres: %v", err)
+		return 1
+	}
+	defer c.Terminate(ctx)
+
+	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		log.Printf("get connection string: %v", err)
+		return 1
+	}
+
+	runMigrations(dsn)
+
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		log.Printf("create pool: %v", err)
+		return 1
+	}
+	defer pool.Close()
+	sharedPool = pool
+
+	return m.Run()
+}
+
+func runMigrations(dsn string) {
+	_, callerFile, _, _ := runtime.Caller(0)
+	absDir, err := filepath.Abs(filepath.Join(filepath.Dir(callerFile), "..", "cmd", "server", "migrations"))
+	if err != nil {
+		log.Fatalf("resolve migrations dir: %v", err)
+	}
+
+	d, err := iofs.New(os.DirFS(absDir), ".")
+	if err != nil {
+		log.Fatalf("create iofs source: %v", err)
+	}
+
+	mi, err := migrate.NewWithSourceInstance("iofs", d, dsn)
+	if err != nil {
+		log.Fatalf("create migrator: %v", err)
+	}
+	defer mi.Close()
+
+	if err := mi.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		log.Fatalf("apply migrations: %v", err)
+	}
+}
+
 type stubGitHub struct{ err error }
 
 func (s *stubGitHub) CheckRepo(_ context.Context, _, _ string) error { return s.err }
 
-// stubEmail implements email.Notifier and records outgoing addresses without sending.
 type stubEmail struct {
 	confirmations []string
 	err           error
@@ -49,7 +110,6 @@ func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ email
 	return nil
 }
 
-// testServer wraps httptest.Server with the stubs and DB pool used in each test.
 type testServer struct {
 	*httptest.Server
 	gh   *stubGitHub
@@ -57,89 +117,20 @@ type testServer struct {
 	pool *pgxpool.Pool
 }
 
-// startPostgres launches a postgres:16-alpine container and returns the connection DSN.
-// The container is terminated automatically when tb finishes.
-func startPostgres(tb testing.TB) string {
-	tb.Helper()
-	ctx := context.Background()
-
-	c, err := tcpostgres.Run(ctx,
-		"postgres:16-alpine",
-		tcpostgres.WithDatabase("testdb"),
-		tcpostgres.WithUsername("test"),
-		tcpostgres.WithPassword("test"),
-		tcpostgres.BasicWaitStrategies(),
-	)
-	testcontainers.CleanupContainer(tb, c)
-	if err != nil {
-		tb.Fatalf("startPostgres: %v", err)
-	}
-
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		tb.Fatalf("get connection string: %v", err)
-	}
-	return dsn
-}
-
-// applyMigrations runs all SQL migrations from cmd/server/migrations against dsn.
-// Uses iofs + os.DirFS to avoid file:// URL path issues on Windows.
-func applyMigrations(tb testing.TB, dsn string) {
-	tb.Helper()
-
-	_, callerFile, _, _ := runtime.Caller(0)
-	absDir, err := filepath.Abs(filepath.Join(filepath.Dir(callerFile), "..", "cmd", "server", "migrations"))
-	if err != nil {
-		tb.Fatalf("resolve migrations dir: %v", err)
-	}
-
-	d, err := iofs.New(os.DirFS(absDir), ".")
-	if err != nil {
-		tb.Fatalf("create iofs source: %v", err)
-	}
-
-	m, err := migrate.NewWithSourceInstance("iofs", d, dsn)
-	if err != nil {
-		tb.Fatalf("create migrator: %v", err)
-	}
-	defer func() {
-		srcErr, dbErr := m.Close()
-		if srcErr != nil {
-			tb.Logf("migrate close source: %v", srcErr)
-		}
-		if dbErr != nil {
-			tb.Logf("migrate close db: %v", dbErr)
-		}
-	}()
-
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		tb.Fatalf("apply migrations: %v", err)
-	}
-}
-
-// newTestServer creates an httptest.Server backed by a real PostgreSQL database.
-// GitHub validation and email delivery are replaced with in-memory stubs.
-// The server and database container are cleaned up when tb finishes.
+// newTestServer wires up an httptest.Server backed by the shared PostgreSQL instance.
+// Tables are truncated before each test to ensure isolation.
 func newTestServer(tb testing.TB) *testServer {
 	tb.Helper()
 
-	dsn := startPostgres(tb)
-	applyMigrations(tb, dsn)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		tb.Fatalf("create pool: %v", err)
+	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE repositories CASCADE"); err != nil {
+		tb.Fatalf("truncate: %v", err)
 	}
-	tb.Cleanup(pool.Close)
 
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
-	repoRepo := repository.NewPostgresRepoRepository(pool)
-	subRepo := repository.NewPostgresRepository(pool)
+	repoRepo := repository.NewPostgresRepoRepository(sharedPool)
+	subRepo := repository.NewPostgresRepository(sharedPool)
 	svc := service.NewSubscriptionService(repoRepo, subRepo, gh, em, "http://test")
 
 	gin.SetMode(gin.TestMode)
@@ -155,5 +146,5 @@ func newTestServer(tb testing.TB) *testServer {
 	srv := httptest.NewServer(r)
 	tb.Cleanup(srv.Close)
 
-	return &testServer{Server: srv, gh: gh, em: em, pool: pool}
+	return &testServer{Server: srv, gh: gh, em: em, pool: sharedPool}
 }
