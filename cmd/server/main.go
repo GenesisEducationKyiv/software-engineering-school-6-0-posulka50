@@ -160,7 +160,12 @@ func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
 	})
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	router.GET("/", func(c *gin.Context) {
-		c.FileFromFS("static/index.html", http.FS(staticFS))
+		data, err := staticFS.ReadFile("static/index.html")
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
 	return router
