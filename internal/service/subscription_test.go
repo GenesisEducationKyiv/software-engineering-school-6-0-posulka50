@@ -168,8 +168,20 @@ func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ email
 	return nil
 }
 
-func newSvc(repoRepo *mockRepoRepo, subRepo *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscriptionService {
-	return service.NewSubscriptionService(repoRepo, subRepo, gh, em, "http://localhost:8080")
+type testSvc struct {
+	*service.SubscribeUseCase
+	*service.ConfirmUseCase
+	*service.UnsubscribeUseCase
+	*service.GetSubscriptionsUseCase
+}
+
+func newSvc(repoRepo *mockRepoRepo, subRepo *mockSubRepo, gh *mockGitHub, em *mockEmail) *testSvc {
+	return &testSvc{
+		SubscribeUseCase:        service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://localhost:8080"),
+		ConfirmUseCase:          service.NewConfirmUseCase(subRepo),
+		UnsubscribeUseCase:      service.NewUnsubscribeUseCase(subRepo),
+		GetSubscriptionsUseCase: service.NewGetSubscriptionsUseCase(subRepo),
+	}
 }
 
 func TestSubscribe_Success(t *testing.T) {

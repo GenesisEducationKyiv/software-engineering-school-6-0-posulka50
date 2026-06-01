@@ -131,11 +131,15 @@ func newTestServer(tb testing.TB) *testServer {
 
 	repoRepo := repository.NewPostgresRepoRepository(sharedPool)
 	subRepo := repository.NewPostgresRepository(sharedPool)
-	svc := service.NewSubscriptionService(repoRepo, subRepo, gh, em, "http://test")
+
+	subscriber := service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")
+	confirmer := service.NewConfirmUseCase(subRepo)
+	unsubscriber := service.NewUnsubscribeUseCase(subRepo)
+	lister := service.NewGetSubscriptionsUseCase(subRepo)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := handler.New(svc)
+	h := handler.New(subscriber, confirmer, unsubscriber, lister)
 
 	api := r.Group("/api")
 	api.POST("/subscribe", h.Subscribe)
