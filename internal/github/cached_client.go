@@ -37,9 +37,13 @@ func (c *CachedRepoChecker) CheckRepo(ctx context.Context, owner, repo string) e
 
 	switch {
 	case err == nil:
-		c.redis.Set(ctx, cacheKey, "exists", repoCheckCacheTTL)
+		if setErr := c.redis.Set(ctx, cacheKey, "exists", repoCheckCacheTTL).Err(); setErr != nil {
+			slog.Warn("github: failed to cache repo check", "key", cacheKey, "err", setErr)
+		}
 	case errors.Is(err, ErrNotFound):
-		c.redis.Set(ctx, cacheKey, "notfound", repoCheckCacheTTL)
+		if setErr := c.redis.Set(ctx, cacheKey, "notfound", repoCheckCacheTTL).Err(); setErr != nil {
+			slog.Warn("github: failed to cache repo check", "key", cacheKey, "err", setErr)
+		}
 	}
 
 	return err
