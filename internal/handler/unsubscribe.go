@@ -19,7 +19,7 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 		return
 	}
 
-	err := h.svc.Unsubscribe(c.Request.Context(), token)
+	err := h.unsubscriber.Unsubscribe(c.Request.Context(), token)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):

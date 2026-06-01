@@ -16,17 +16,7 @@ var (
 	ErrAlreadyExists = errors.New("already exists")
 )
 
-type SubscriptionRepository interface {
-	Create(ctx context.Context, sub *model.Subscription) error
-	GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error)
-	GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error)
-	GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error)
-	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
-	Confirm(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
-	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
-}
-
+// PostgresRepository is a PostgreSQL implementation of the subscription storage.
 type PostgresRepository struct {
 	db *pgxpool.Pool
 }

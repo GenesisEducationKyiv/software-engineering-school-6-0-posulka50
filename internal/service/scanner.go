@@ -11,34 +11,46 @@ import (
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
-	"github.com/posul/github-notifier/internal/repository"
 )
 
 type releaseChecker interface {
 	GetLatestRelease(ctx context.Context, owner, repo string) (*githubclient.Release, error)
 }
 
+type scannerRepoStore interface {
+	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error)
+	UpdateLastSeenTag(ctx context.Context, id string, tag string) error
+}
+
+type scannerSubStore interface {
+	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
+}
+
+type releaseSender interface {
+	SendReleaseNotification(ctx context.Context, to string, data email.ReleaseData) error
+}
+
 // Scanner polls GitHub for new releases and notifies subscribers by email.
 type Scanner struct {
-	repoRepo    repository.Repository
-	subRepo     repository.SubscriptionRepository
+	repos       scannerRepoStore
+	subs        scannerSubStore
 	github      releaseChecker
-	emailSender email.Notifier
+	emailSender releaseSender
 	baseURL     string
 	interval    time.Duration
 }
 
 func NewScanner(
-	repoRepo repository.Repository,
-	subRepo repository.SubscriptionRepository,
+	repos scannerRepoStore,
+	subs scannerSubStore,
 	githubClient releaseChecker,
-	emailSender email.Notifier,
+	emailSender releaseSender,
 	baseURL string,
 	interval time.Duration,
 ) *Scanner {
 	return &Scanner{
-		repoRepo:    repoRepo,
-		subRepo:     subRepo,
+		repos:       repos,
+		subs:        subs,
 		github:      githubClient,
 		emailSender: emailSender,
 		baseURL:     baseURL,
@@ -73,7 +85,7 @@ func (s *Scanner) Start(ctx context.Context) {
 func (s *Scanner) scan(ctx context.Context) {
 	log.Println("scanner: running scan")
 
-	repos, err := s.repoRepo.GetAllWithConfirmedSubscriptions(ctx)
+	repos, err := s.repos.GetAllWithConfirmedSubscriptions(ctx)
 	if err != nil {
 		log.Printf("scanner: failed to fetch repositories: %v", err)
 		return
@@ -113,7 +125,7 @@ func (s *Scanner) scan(ctx context.Context) {
 
 func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, release *githubclient.Release) {
 	if repo.LastSeenTag == nil {
-		if err := s.repoRepo.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
+		if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
 			log.Printf("scanner: failed to set initial last_seen_tag for %s: %v", repo.FullName, err)
 		}
 		return
@@ -126,7 +138,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 
 	log.Printf("scanner: %s — new release %s → %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
-	subs, err := s.subRepo.GetConfirmedByRepoID(ctx, repo.ID)
+	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
 		log.Printf("scanner: failed to fetch subscribers for %s: %v", repo.FullName, err)
 		return
@@ -150,7 +162,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 		}
 	}
 
-	if err := s.repoRepo.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
+	if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
 		log.Printf("scanner: failed to update last_seen_tag for %s: %v", repo.FullName, err)
 	}
 }
