@@ -25,12 +25,7 @@ type ReleaseData struct {
 	UnsubscribeURL string
 }
 
-const defaultResendAPIURL = "https://api.resend.com/emails"
-
-type Notifier interface {
-	SendConfirmation(ctx context.Context, to string, data ConfirmData) error
-	SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error
-}
+const resendAPIURL = "https://api.resend.com/emails"
 
 // renderer defines the interface for rendering email HTML bodies.
 type renderer interface {
@@ -41,23 +36,16 @@ type renderer interface {
 type Sender struct {
 	httpClient *http.Client
 	apiKey     string
-	apiURL     string
 	from       string
 	renderer   renderer
 }
 
-// NewSender creates a new Sender using the given Resend API key, endpoint URL and sender address.
-// If apiURL is empty, the default Resend endpoint is used.
-func NewSender(apiKey, apiURL, from string) *Sender {
-	if apiURL == "" {
-		apiURL = defaultResendAPIURL
-	}
+func NewSender(apiKey, from string, r renderer) *Sender {
 	return &Sender{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		apiKey:     apiKey,
-		apiURL:     apiURL,
 		from:       from,
-		renderer:   NewTemplateRenderer(),
+		renderer:   r,
 	}
 }
 
@@ -96,7 +84,7 @@ func (s *Sender) send(ctx context.Context, to, subject, htmlBody string) error {
 		return fmt.Errorf("marshal resend payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendAPIURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create resend request: %w", err)
 	}

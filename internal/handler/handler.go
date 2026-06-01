@@ -21,9 +21,22 @@ const (
 )
 
 type Handler struct {
-	svc Service
+	subscriber         Subscriber
+	confirmer          Confirmer
+	unsubscriber       Unsubscriber
+	subscriptionLister SubscriptionLister
 }
 
-func New(svc Service) *Handler {
-	return &Handler{svc: svc}
+func New(
+	subscriber Subscriber,
+	confirmer Confirmer,
+	unsubscriber Unsubscriber,
+	subscriptionLister SubscriptionLister,
+) *Handler {
+	return &Handler{
+		subscriber:         subscriber,
+		confirmer:          confirmer,
+		unsubscriber:       unsubscriber,
+		subscriptionLister: subscriptionLister,
+	}
 }

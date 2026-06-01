@@ -55,9 +55,9 @@ func run() error {
 
 	redisClient := initRedis(cfg.RedisURL)
 
-	subService, scanner := setupServices(dbPool, redisClient, cfg)
+	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, cfg)
 
-	router := newRouter(cfg, subService)
+	router := newRouter(cfg, handler.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -140,14 +140,12 @@ func initRedis(redisURL string) *redis.Client {
 	return client
 }
 
-func newRouter(cfg *config.Config, svc handler.Service) *gin.Engine {
+func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
 	gin.SetMode(cfg.GinMode)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.Prometheus())
-
-	h := handler.New(svc)
 
 	api := router.Group("/api")
 	{
@@ -162,12 +160,7 @@ func newRouter(cfg *config.Config, svc handler.Service) *gin.Engine {
 	})
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	router.GET("/", func(c *gin.Context) {
-		data, err := staticFS.ReadFile("static/index.html")
-		if err != nil {
-			c.Status(http.StatusInternalServerError)
-			return
-		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+		c.FileFromFS("static/index.html", http.FS(staticFS))
 	})
 
 	return router
@@ -183,27 +176,39 @@ func newServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (*service.SubscriptionService, *service.Scanner) {
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (
+	*service.SubscribeUseCase,
+	*service.ConfirmUseCase,
+	*service.UnsubscribeUseCase,
+	*service.GetSubscriptionsUseCase,
+	*service.Scanner,
+) {
 	repoRepo := repository.NewPostgresRepoRepository(dbPool)
 	subRepo := repository.NewPostgresRepository(dbPool)
-	baseClient := githubclient.NewClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.ResendAPIURL, cfg.EmailFrom)
+	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
+	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
+	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, email.NewTemplateRenderer())
 
-	var repoChecker githubclient.RepoChecker = baseClient
+	var checker githubclient.RepoChecker = repoCheckerClient
+	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient
 	if redisClient != nil {
-		repoChecker = githubclient.NewCachedClient(baseClient, redisClient)
+		checker = githubclient.NewCachedRepoChecker(repoCheckerClient, redisClient)
+		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subService := service.NewSubscriptionService(repoRepo, subRepo, repoChecker, emailSender, cfg.BaseURL)
+	subscribeUC := service.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
+	confirmUC := service.NewConfirmUseCase(subRepo)
+	unsubscribeUC := service.NewUnsubscribeUseCase(subRepo)
+	getSubsUC := service.NewGetSubscriptionsUseCase(subRepo)
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {
 		log.Printf("warn: invalid SCAN_INTERVAL %q, defaulting to 1h", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := service.NewScanner(repoRepo, subRepo, baseClient, emailSender, cfg.BaseURL, scanInterval)
+	scanner := service.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
 
-	return subService, scanner
+	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
 }
 
 func runMigrations(databaseURL string) error {

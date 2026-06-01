@@ -10,21 +10,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const cacheTTL = 10 * time.Minute
+const repoCheckCacheTTL = 10 * time.Minute
 
-// CachedClient wraps a RepoChecker and caches repository existence checks in Redis.
-type CachedClient struct {
+// CachedRepoChecker wraps a RepoChecker and caches repository existence checks in Redis.
+type CachedRepoChecker struct {
 	inner RepoChecker
 	redis *redis.Client
 }
 
-// NewCachedClient creates a CachedClient that caches CheckRepo results using Redis.
-func NewCachedClient(inner RepoChecker, redisClient *redis.Client) *CachedClient {
-	return &CachedClient{inner: inner, redis: redisClient}
+func NewCachedRepoChecker(inner RepoChecker, redisClient *redis.Client) *CachedRepoChecker {
+	return &CachedRepoChecker{inner: inner, redis: redisClient}
 }
 
-// CheckRepo checks the Redis cache first; on miss delegates to the inner RepoChecker and caches the result.
-func (c *CachedClient) CheckRepo(ctx context.Context, owner, repo string) error {
+func (c *CachedRepoChecker) CheckRepo(ctx context.Context, owner, repo string) error {
 	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
 
 	if cached, err := c.redis.Get(ctx, cacheKey).Result(); err == nil {
@@ -39,9 +37,9 @@ func (c *CachedClient) CheckRepo(ctx context.Context, owner, repo string) error 
 
 	switch {
 	case err == nil:
-		c.redis.Set(ctx, cacheKey, "exists", cacheTTL)
+		c.redis.Set(ctx, cacheKey, "exists", repoCheckCacheTTL)
 	case errors.Is(err, ErrNotFound):
-		c.redis.Set(ctx, cacheKey, "notfound", cacheTTL)
+		c.redis.Set(ctx, cacheKey, "notfound", repoCheckCacheTTL)
 	}
 
 	return err
