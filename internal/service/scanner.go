@@ -136,7 +136,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 		return
 	}
 
-	log.Printf("scanner: %s — new release %s → %s", repo.FullName, *repo.LastSeenTag, release.TagName)
+	log.Printf("scanner: %s — new release %s -> %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
 	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 			log.Printf("scanner: failed to notify %s about %s@%s: %v",
 				sub.Email, repo.FullName, release.TagName, err)
 		} else {
-			log.Printf("scanner: notified %s → %s %s", sub.Email, repo.FullName, release.TagName)
+			log.Printf("scanner: notified %s -> %s %s", sub.Email, repo.FullName, release.TagName)
 		}
 	}
 

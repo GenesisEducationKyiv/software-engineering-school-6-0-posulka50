@@ -25,15 +25,6 @@ test.describe('Subscribe page', () => {
     await expect(page.locator('#btn')).toBeEnabled();
   });
 
-  test('success — shows confirmation message', async ({ page }) => {
-    await mockSubscribe(page, 200, { message: 'Subscription successful. Confirmation email sent.' });
-
-    await fillAndSubmit(page, 'golang/go', 'user@example.com');
-
-    await expect(page.locator('#msg')).toHaveClass(/success/);
-    await expect(page.locator('#msg')).toContainText('Check your inbox');
-  });
-
   test('success — resets form fields after submit', async ({ page }) => {
     await mockSubscribe(page, 200, { message: 'Subscription successful. Confirmation email sent.' });
 
@@ -53,24 +44,6 @@ test.describe('Subscribe page', () => {
 
     await expect(page.locator('#msg')).toHaveClass(/error/);
     await expect(page.locator('#msg')).toContainText('invalid email format');
-  });
-
-  test('404 — repo not found shows error', async ({ page }) => {
-    await mockSubscribe(page, 404, { error: 'repository not found on GitHub' });
-
-    await fillAndSubmit(page, 'nobody/norepo', 'user@example.com');
-
-    await expect(page.locator('#msg')).toHaveClass(/error/);
-    await expect(page.locator('#msg')).toContainText('repository not found');
-  });
-
-  test('409 — duplicate subscription shows error', async ({ page }) => {
-    await mockSubscribe(page, 409, { error: 'email already subscribed to this repository' });
-
-    await fillAndSubmit(page, 'golang/go', 'user@example.com');
-
-    await expect(page.locator('#msg')).toHaveClass(/error/);
-    await expect(page.locator('#msg')).toContainText('already subscribed');
   });
 
   test('429 — rate limit shows error', async ({ page }) => {

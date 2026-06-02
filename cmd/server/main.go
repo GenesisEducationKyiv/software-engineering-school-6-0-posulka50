@@ -192,7 +192,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	subRepo := repository.NewPostgresRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, email.NewTemplateRenderer())
+	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, email.NewTemplateRenderer())
 
 	var checker githubclient.RepoChecker = repoCheckerClient
 	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient

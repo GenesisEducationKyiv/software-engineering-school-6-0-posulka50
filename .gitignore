@@ -8,6 +8,9 @@
 # Go
 vendor/
 
+# Node
+node_modules/
+
 # IDE
 .idea/
 

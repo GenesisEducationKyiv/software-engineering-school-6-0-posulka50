@@ -3,11 +3,13 @@ version: "3.9"
 services:
   fake-resend:
     image: node:22-alpine
+    ports:
+      - "3000:3000"
     volumes:
       - ./e2e/fake-resend.js:/app/fake-resend.js:ro
     command: node /app/fake-resend.js
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000',(r)=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/emails',(r)=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 10
