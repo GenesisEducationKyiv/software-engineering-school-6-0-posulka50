@@ -8,13 +8,7 @@ A Go service that lets users subscribe to email notifications whenever a new rel
 
 ## Architecture
 
-Single-process monolith with three logical components:
-
-| Component | Responsibility |
-|-----------|---------------|
-| **API** | HTTP REST endpoints (Gin) — subscription management |
-| **Scanner** | Background goroutine — periodically polls GitHub for new releases |
-| **Notifier** | Sends HTML emails via Resend HTTP API (confirmation + release alerts) |
+For architecture, data model, sequence diagrams, and design decisions see [docs/system-design-document.md](docs/system-design-document.md).
 
 ```
 cmd/server/main.go          ← wires everything together
@@ -83,35 +77,6 @@ GET /api/unsubscribe/{token}
 
 ---
 
-## How it works
-
-### Subscription flow
-1. `POST /api/subscribe` — validates input, checks GitHub API for repo existence, creates an unconfirmed record, sends a confirmation email.
-2. `GET /api/confirm/:token` — sets `confirmed=true`. Only confirmed subscriptions receive release notifications.
-3. `GET /api/unsubscribe/:token` — deletes the subscription. Every release email contains an unsubscribe link.
-
-### Release scanning
-- A background goroutine ticks every `SCAN_INTERVAL` (default `1h`).
-- On each tick it fetches all repos with confirmed subscribers and calls GitHub API once per repo.
-- **First scan:** stores `last_seen_tag` silently — no email sent, preventing a flood of old releases on signup.
-- **New release detected:** sends notification to all confirmed subscribers, then updates `last_seen_tag` for the repo (single DB write regardless of subscriber count).
-- **Rate limit hit (429):** scan stops early and resumes on the next tick.
-
-### Redis caching
-GitHub API responses are cached in Redis (TTL 10 minutes):
-- `github:repo:{owner}/{repo}` — repo existence check (cached: repo existence doesn't change between requests)
-
-`GetLatestRelease` is intentionally **not cached** — the scanner must always fetch fresh data from GitHub to detect new releases correctly. Caching releases would cause the scanner to miss new releases if `SCAN_INTERVAL` is less than the cache TTL.
-
-Service works without Redis — caching gracefully disabled if unavailable.
-
-### Email
-HTML emails are sent via [Resend](https://resend.com) HTTP API — no SMTP ports required. Templates use GitHub dark theme and include:
-- **Confirmation email** — button + fallback link to confirm subscription
-- **Release notification** — tag, release name, notes, link to GitHub, unsubscribe link
-
----
-
 ## Quick start
 
 ### With Docker Compose
@@ -145,7 +110,7 @@ go run ./cmd/server
 | `EMAIL_FROM` | — | Verified sender address (e.g. `noreply@yourdomain.com`) |
 | `BASE_URL` | `http://localhost:8080` | Used in confirmation/unsubscribe links |
 | `SCAN_INTERVAL` | `1h` | Release polling interval (e.g. `10m`, `6h`) |
-| `API_KEY` | _(empty)_ | Optional — `APIKeyAuth` middleware available for future internal routes |
+| `API_KEY` | _(empty)_ | When set, write and list endpoints require `X-API-Key` header |
 
 ---
 

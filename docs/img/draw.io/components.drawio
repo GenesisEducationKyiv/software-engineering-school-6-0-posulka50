@@ -1,0 +1,249 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0" pages="2">
+  <diagram name="Architecture Diagram" id="yLjDbIrdutAMM1YoJNNR">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-11" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="PostgreSQL&#xa;&#xa;Authoritative store for subscriptions and repository state" vertex="1">
+          <mxGeometry height="160" width="160" x="810" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-12" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Redis&#xa;&#xa;Optional repo-existence cache; TTL 10 min" vertex="1">
+          <mxGeometry height="130" width="160" x="-380" y="922.5" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-13" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.general.generic_database;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" value="GitHub API&#xa;&#xa;Repository metadata and latest release tags" vertex="1">
+          <mxGeometry height="80" width="180" x="-30" y="1180" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-14" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.general.internet_alt1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;" value="Resend API&#xa;&#xa;Transactional email delivery" vertex="1">
+          <mxGeometry height="80" width="180" x="530" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-15" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-4" style="endArrow=block;html=1;rounded=0;" target="Efed4wwzm2hcBaY_hfhg-5" value="delegates">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-16" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-5" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-6" value="calls">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-17" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-6" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-7" value="check repo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-18" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-6" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-10" value="read / write">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-19" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-6" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-9" value="send confirmation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-20" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-8" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-10" value="read repos &amp; subscribers / update tag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-21" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-8" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-7" value="fetch latest release">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-22" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-8" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-9" value="send notifications">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-23" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-7" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-12" value="GET / SET cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-24" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-7" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-13" value="HTTPS GET">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-25" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-9" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-14" value="POST /emails">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-26" edge="1" parent="1" source="Efed4wwzm2hcBaY_hfhg-10" style="endArrow=block;html=1;" target="Efed4wwzm2hcBaY_hfhg-11" value="SQL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="GitHub Client&#xa;[Go]&#xa;&#xa;Checks repo existence; fetches latest release tag" vertex="1">
+          <mxGeometry height="115" width="240" x="-60" y="930" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="DB Layer&#xa;[Go]&#xa;&#xa;CRUD on repositories and subscriptions" vertex="1">
+          <mxGeometry height="135" width="240" x="880" y="910" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="HTTP Router&#xa;[Gin]&#xa;&#xa;Routes HTTP requests; runs recovery and metrics middleware" vertex="1">
+          <mxGeometry height="105" width="240" x="-190" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Handlers&#xa;[Go]&#xa;&#xa;Subscribe, Confirm, Unsubscribe, List" vertex="1">
+          <mxGeometry height="105" width="240" x="-190" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="SubscriptionService&#xa;[Go]&#xa;&#xa;Business logic: validation, orchestration, token management" vertex="1">
+          <mxGeometry height="105" width="240" x="180" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Scanner Worker&#xa;[Go goroutine]&#xa;&#xa;Periodic loop: detects new tags, dispatches notifications" vertex="1">
+          <mxGeometry height="105" width="240" x="340" y="935" as="geometry" />
+        </mxCell>
+        <mxCell id="Efed4wwzm2hcBaY_hfhg-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Email Sender&#xa;[Go]&#xa;&#xa;Sends confirmation and release notification emails" vertex="1">
+          <mxGeometry height="105" width="240" x="500" y="380" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="UML Class Diagram" id="6wLvoC92nfV6SZBTGrOw">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="iService" parent="1" style="text;html=1;strokeColor=#0e4d8a;fillColor=#dae8fc;align=center;verticalAlign=top;spacingTop=0;fontStyle=1;fontSize=12;rounded=1;" value="«interface»&#xa;Service" vertex="1">
+          <mxGeometry height="20" width="240" x="60" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iServiceBody" parent="1" style="text;html=1;strokeColor=#0e4d8a;fillColor=#dae8fc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+Subscribe(ctx, email, repo) error&#xa;+Confirm(ctx, token) error&#xa;+Unsubscribe(ctx, token) error&#xa;+GetSubscriptions(ctx, email) []Subscription" vertex="1">
+          <mxGeometry height="80" width="240" x="60" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="iServiceBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;startSize=0;container=0;collapsible=0;childLayout=0;fixedRows=1;rowLines=0;fontStyle=0;align=center;resizeLast=1;strokeColor=#0e4d8a;" value="" vertex="1">
+          <mxGeometry height="100" width="240" x="60" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iSubRepo" parent="1" style="text;html=1;strokeColor=#6a00ff;fillColor=#e1d5e7;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="«interface»&#xa;SubscriptionRepository" vertex="1">
+          <mxGeometry height="20" width="260" x="340" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iSubRepoBody" parent="1" style="text;html=1;strokeColor=#6a00ff;fillColor=#e1d5e7;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+Create(ctx, sub) error&#xa;+GetByConfirmToken(ctx, token) Subscription&#xa;+GetByUnsubscribeToken(ctx, token) Subscription&#xa;+GetByEmail(ctx, email) []Subscription&#xa;+GetConfirmedByRepoID(ctx, repoID) []Subscription&#xa;+Confirm(ctx, id) error&#xa;+Delete(ctx, id) error&#xa;+ExistsByEmailAndRepoID(ctx, email, repoID) bool" vertex="1">
+          <mxGeometry height="140" width="260" x="340" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="iSubRepoBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#6a00ff;" value="" vertex="1">
+          <mxGeometry height="160" width="260" x="340" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepo" parent="1" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="«interface»&#xa;Repository" vertex="1">
+          <mxGeometry height="20" width="260" x="640" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepoBody" parent="1" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+GetOrCreate(ctx, fullName) Repository&#xa;+GetAllWithConfirmedSubscriptions(ctx) []Repository&#xa;+UpdateLastSeenTag(ctx, id, tag) error" vertex="1">
+          <mxGeometry height="60" width="260" x="640" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepoBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#82b366;" value="" vertex="1">
+          <mxGeometry height="80" width="260" x="640" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iNotifier" parent="1" style="text;html=1;strokeColor=#b85450;fillColor=#f8cecc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="«interface»&#xa;Notifier" vertex="1">
+          <mxGeometry height="20" width="240" x="940" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iNotifierBody" parent="1" style="text;html=1;strokeColor=#b85450;fillColor=#f8cecc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+SendConfirmation(ctx, to, data) error&#xa;+SendReleaseNotification(ctx, to, data) error" vertex="1">
+          <mxGeometry height="50" width="240" x="940" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="iNotifierBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#b85450;" value="" vertex="1">
+          <mxGeometry height="70" width="240" x="940" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepoChecker" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="«interface»&#xa;repoChecker" vertex="1">
+          <mxGeometry height="20" width="200" x="1220" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepoCheckerBody" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+CheckRepo(ctx, owner, repo) error" vertex="1">
+          <mxGeometry height="30" width="200" x="1220" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="iRepoCheckerBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#d6b656;" value="" vertex="1">
+          <mxGeometry height="50" width="200" x="1220" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="iReleaseChecker" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="«interface»&#xa;releaseChecker" vertex="1">
+          <mxGeometry height="20" width="200" x="1220" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="iReleaseCheckerBody" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="+GetLatestRelease(ctx, owner, repo) Release" vertex="1">
+          <mxGeometry height="30" width="200" x="1220" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="iReleaseCheckerBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#d6b656;" value="" vertex="1">
+          <mxGeometry height="50" width="200" x="1220" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="cHandler" parent="1" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="Handler" vertex="1">
+          <mxGeometry height="20" width="240" x="60" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cHandlerBody" parent="1" style="text;html=1;strokeColor=#666666;fillColor=#f5f5f5;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-svc Service&#xa;+Subscribe(c)&#xa;+Confirm(c)&#xa;+Unsubscribe(c)&#xa;+GetSubscriptions(c)" vertex="1">
+          <mxGeometry height="90" width="240" x="60" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="cHandlerBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#666666;" value="" vertex="1">
+          <mxGeometry height="110" width="240" x="60" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cSvcSub" parent="1" style="text;html=1;strokeColor=#0e4d8a;fillColor=#dae8fc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="SubscriptionService" vertex="1">
+          <mxGeometry height="20" width="260" x="340" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="cSvcSubBody" parent="1" style="text;html=1;strokeColor=#0e4d8a;fillColor=#dae8fc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-repoRepo Repository&#xa;-subRepo SubscriptionRepository&#xa;-github repoChecker&#xa;-emailSender Notifier&#xa;-baseURL string&#xa;+Subscribe(ctx, email, repo) error&#xa;+Confirm(ctx, token) error&#xa;+Unsubscribe(ctx, token) error&#xa;+GetSubscriptions(ctx, email) []Subscription" vertex="1">
+          <mxGeometry height="160" width="260" x="340" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="cSvcSubBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#0e4d8a;" value="" vertex="1">
+          <mxGeometry height="180" width="260" x="340" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="cScanner" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#ffe6cc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="Scanner" vertex="1">
+          <mxGeometry height="20" width="260" x="640" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cScannerBody" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#ffe6cc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-repoRepo Repository&#xa;-subRepo SubscriptionRepository&#xa;-github releaseChecker&#xa;-emailSender Notifier&#xa;-baseURL string&#xa;-interval Duration&#xa;+Start(ctx)&#xa;+RunOnce(ctx)&#xa;-scan(ctx)&#xa;-processRepo(ctx, repo, release)" vertex="1">
+          <mxGeometry height="180" width="260" x="640" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="cScannerBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#d6b656;" value="" vertex="1">
+          <mxGeometry height="200" width="260" x="640" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGSub" parent="1" style="text;html=1;strokeColor=#6a00ff;fillColor=#e1d5e7;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="PostgresRepository" vertex="1">
+          <mxGeometry height="20" width="260" x="340" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGSubBody" parent="1" style="text;html=1;strokeColor=#6a00ff;fillColor=#e1d5e7;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-db pgxpool.Pool&#xa;+Create()&#xa;+GetByConfirmToken()&#xa;+GetByUnsubscribeToken()&#xa;+GetByEmail()&#xa;+GetConfirmedByRepoID()&#xa;+Confirm()&#xa;+Delete()&#xa;+ExistsByEmailAndRepoID()" vertex="1">
+          <mxGeometry height="160" width="260" x="340" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGSubBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#6a00ff;" value="" vertex="1">
+          <mxGeometry height="180" width="260" x="340" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGRepo" parent="1" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="PostgresRepoRepository" vertex="1">
+          <mxGeometry height="20" width="260" x="640" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGRepoBody" parent="1" style="text;html=1;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-db pgxpool.Pool&#xa;+GetOrCreate()&#xa;+GetAllWithConfirmedSubscriptions()&#xa;+UpdateLastSeenTag()" vertex="1">
+          <mxGeometry height="80" width="260" x="640" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="cPGRepoBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#82b366;" value="" vertex="1">
+          <mxGeometry height="100" width="260" x="640" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="cSender" parent="1" style="text;html=1;strokeColor=#b85450;fillColor=#f8cecc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="Sender" vertex="1">
+          <mxGeometry height="20" width="240" x="940" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cSenderBody" parent="1" style="text;html=1;strokeColor=#b85450;fillColor=#f8cecc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-httpClient http.Client&#xa;-apiKey string&#xa;-from string&#xa;+SendConfirmation()&#xa;+SendReleaseNotification()&#xa;-send()" vertex="1">
+          <mxGeometry height="110" width="240" x="940" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="cSenderBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#b85450;" value="" vertex="1">
+          <mxGeometry height="130" width="240" x="940" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="cClient" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=center;verticalAlign=top;fontStyle=1;fontSize=12;rounded=0;" value="Client" vertex="1">
+          <mxGeometry height="20" width="200" x="1220" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="cClientBody" parent="1" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=top;spacingLeft=8;fontSize=11;rounded=0;" value="-httpClient http.Client&#xa;-token string&#xa;-redis redis.Client&#xa;+CheckRepo()&#xa;+GetLatestRelease()&#xa;-doRequest()" vertex="1">
+          <mxGeometry height="110" width="200" x="1220" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="cClientBorder" parent="1" style="points=[[0,0],[1,0],[1,1],[0,1]];shape=table;container=0;collapsible=0;strokeColor=#d6b656;" value="" vertex="1">
+          <mxGeometry height="130" width="200" x="1220" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" edge="1" parent="1" source="cSvcSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#0e4d8a;" target="iServiceBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" edge="1" parent="1" source="cPGSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#6a00ff;" target="iSubRepoBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" edge="1" parent="1" source="cPGRepoBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#82b366;" target="iRepoBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" edge="1" parent="1" source="cSenderBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#b85450;" target="iNotifierBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" edge="1" parent="1" source="cClientBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#d6b656;" target="iRepoCheckerBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r6" edge="1" parent="1" source="cClientBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;endArrow=block;endFill=0;strokeColor=#d6b656;" target="iReleaseCheckerBorder" value="implements">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u1" edge="1" parent="1" source="cHandlerBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iServiceBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u2" edge="1" parent="1" source="cSvcSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iSubRepoBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u3" edge="1" parent="1" source="cSvcSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iRepoBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u4" edge="1" parent="1" source="cSvcSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iRepoCheckerBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u5" edge="1" parent="1" source="cSvcSubBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iNotifierBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u6" edge="1" parent="1" source="cScannerBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iSubRepoBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u7" edge="1" parent="1" source="cScannerBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iRepoBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u8" edge="1" parent="1" source="cScannerBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iReleaseCheckerBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="u9" edge="1" parent="1" source="cScannerBorder" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=open;endFill=0;strokeColor=#333333;" target="iNotifierBorder" value="uses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
