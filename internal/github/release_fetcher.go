@@ -56,6 +56,6 @@ func (c *ReleaseFetcherClient) GetLatestRelease(ctx context.Context, owner, repo
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
 
-	slog.Debug("github: got release", "owner", owner, "repo", repo, "tag", release.TagName)
+	log.Printf("github: got release %s/%s -> %s", owner, repo, release.TagName)
 	return &release, nil
 }

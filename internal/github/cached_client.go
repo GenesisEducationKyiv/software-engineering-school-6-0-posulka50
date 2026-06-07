@@ -23,28 +23,34 @@ func NewCachedRepoChecker(inner RepoChecker, redisClient *redis.Client) *CachedR
 }
 
 func (c *CachedRepoChecker) CheckRepo(ctx context.Context, owner, repo string) error {
-	cacheKey := fmt.Sprintf("github:repo:%s/%s", owner, repo)
+	key := fmt.Sprintf("github:repo:%s/%s", owner, repo)
 
-	if cached, err := c.redis.Get(ctx, cacheKey).Result(); err == nil {
-		slog.Debug("github: cache hit for repo", "owner", owner, "repo", repo, "cached", cached)
-		if cached == "notfound" {
-			return ErrNotFound
-		}
-		return nil
+	if hit, err := c.readCache(ctx, key, owner, repo); hit {
+		return err
 	}
 
 	err := c.inner.CheckRepo(ctx, owner, repo)
+	c.writeCache(ctx, key, err)
+	return err
+}
 
+func (c *CachedRepoChecker) readCache(ctx context.Context, key, owner, repo string) (hit bool, err error) {
+	cached, redisErr := c.redis.Get(ctx, key).Result()
+	if redisErr != nil {
+		return false, nil
+	}
+	log.Printf("github: cache hit for repo %s/%s (%s)", owner, repo, cached)
+	if cached == "notfound" {
+		return true, ErrNotFound
+	}
+	return true, nil
+}
+
+func (c *CachedRepoChecker) writeCache(ctx context.Context, key string, err error) {
 	switch {
 	case err == nil:
-		if setErr := c.redis.Set(ctx, cacheKey, "exists", repoCheckCacheTTL).Err(); setErr != nil {
-			slog.Warn("github: failed to cache repo check", "key", cacheKey, "err", setErr)
-		}
+		c.redis.Set(ctx, key, "exists", repoCheckCacheTTL)
 	case errors.Is(err, ErrNotFound):
-		if setErr := c.redis.Set(ctx, cacheKey, "notfound", repoCheckCacheTTL).Err(); setErr != nil {
-			slog.Warn("github: failed to cache repo check", "key", cacheKey, "err", setErr)
-		}
+		c.redis.Set(ctx, key, "notfound", repoCheckCacheTTL)
 	}
-
-	return err
 }

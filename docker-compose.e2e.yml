@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  fake-resend:
+    image: node:22-alpine
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./e2e/fake-resend.js:/app/fake-resend.js:ro
+    command: node /app/fake-resend.js
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/emails',(r)=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: github_notifier
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/github_notifier?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      BASE_URL: http://localhost:8080
+      RESEND_API_KEY: fake-key
+      RESEND_API_URL: http://fake-resend:3000
+      EMAIL_FROM: test@example.com
+      SCAN_INTERVAL: 24h
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GIN_MODE: release
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fake-resend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15

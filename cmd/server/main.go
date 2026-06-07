@@ -164,7 +164,12 @@ func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
 	})
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	router.GET("/", func(c *gin.Context) {
-		c.FileFromFS("static/index.html", http.FS(staticFS))
+		data, err := staticFS.ReadFile("static/index.html")
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
 	return router
@@ -191,7 +196,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	subRepo := repository.NewPostgresRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, email.NewTemplateRenderer())
+	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, email.NewTemplateRenderer())
 
 	var checker githubclient.RepoChecker = repoCheckerClient
 	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient

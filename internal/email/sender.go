@@ -25,8 +25,6 @@ type ReleaseData struct {
 	UnsubscribeURL string
 }
 
-const resendAPIURL = "https://api.resend.com/emails"
-
 // renderer defines the interface for rendering email HTML bodies.
 type renderer interface {
 	RenderConfirmation(data ConfirmData) (string, error)
@@ -35,14 +33,16 @@ type renderer interface {
 
 type Sender struct {
 	httpClient *http.Client
+	apiURL     string
 	apiKey     string
 	from       string
 	renderer   renderer
 }
 
-func NewSender(apiKey, from string, r renderer) *Sender {
+func NewSender(apiKey, from, apiURL string, r renderer) *Sender {
 	return &Sender{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		apiURL:     apiURL,
 		apiKey:     apiKey,
 		from:       from,
 		renderer:   r,
@@ -88,7 +88,7 @@ func (s *Sender) send(ctx context.Context, to, subject, htmlBody string) error {
 		return fmt.Errorf("marshal resend payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendAPIURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create resend request: %w", err)
 	}

@@ -141,8 +141,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 		return
 	}
 
-	metrics.ReleasesDetectedTotal.Inc()
-	slog.Info("scanner: new release detected", "repo", repo.FullName, "from", *repo.LastSeenTag, "to", release.TagName)
+	log.Printf("scanner: %s — new release %s -> %s", repo.FullName, *repo.LastSeenTag, release.TagName)
 
 	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
@@ -164,7 +163,7 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 			slog.Error("scanner: failed to notify subscriber",
 				"email", sub.Email, "repo", repo.FullName, "tag", release.TagName, "error", err)
 		} else {
-			slog.Info("scanner: subscriber notified", "email", sub.Email, "repo", repo.FullName, "tag", release.TagName)
+			log.Printf("scanner: notified %s -> %s %s", sub.Email, repo.FullName, release.TagName)
 		}
 	}
 

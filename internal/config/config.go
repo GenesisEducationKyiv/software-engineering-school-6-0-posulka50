@@ -13,6 +13,7 @@ type Config struct {
 	GitHubToken string
 
 	ResendAPIKey string
+	ResendAPIURL string
 	EmailFrom    string
 
 	BaseURL      string
@@ -28,6 +29,7 @@ func Load() *Config {
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
 		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
 		ResendAPIKey: os.Getenv("RESEND_API_KEY"),
+		ResendAPIURL: getEnv("RESEND_API_URL", "https://api.resend.com/emails"),
 		EmailFrom:    os.Getenv("EMAIL_FROM"),
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),

@@ -28,7 +28,7 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	slog.Info("subscribe", "email", email, "repo", repo)
+	log.Printf("subscribe: %s -> %s", email, repo)
 
 	err := h.subscriber.Subscribe(c.Request.Context(), email, repo)
 	if err != nil {
