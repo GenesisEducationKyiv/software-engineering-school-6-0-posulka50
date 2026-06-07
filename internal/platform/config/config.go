@@ -12,9 +12,7 @@ type Config struct {
 
 	GitHubToken string
 
-	ResendAPIKey string
-	ResendAPIURL string
-	EmailFrom    string
+	NotifierURL string
 
 	BaseURL      string
 	ScanInterval string
@@ -28,9 +26,7 @@ func Load() *Config {
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/github_notifier?sslmode=disable"),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
 		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
-		ResendAPIKey: os.Getenv("RESEND_API_KEY"),
-		ResendAPIURL: getEnv("RESEND_API_URL", "https://api.resend.com/emails"),
-		EmailFrom:    os.Getenv("EMAIL_FROM"),
+		NotifierURL:  getEnv("NOTIFIER_URL", "http://localhost:8081"),
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
 		GinMode:      getEnv("GIN_MODE", "release"),
