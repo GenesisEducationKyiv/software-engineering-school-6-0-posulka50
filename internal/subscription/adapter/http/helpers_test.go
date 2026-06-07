@@ -1,4 +1,4 @@
-package handler_test
+package httpapi_test
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 	"net/http/httptest"
 
 	"github.com/gin-gonic/gin"
-	"github.com/posul/github-notifier/internal/handler"
-	"github.com/posul/github-notifier/internal/model"
 	"github.com/stretchr/testify/mock"
+
+	httpapi "github.com/posul/github-notifier/internal/subscription/adapter/http"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type mockService struct {
@@ -27,16 +28,16 @@ func (m *mockService) Unsubscribe(ctx context.Context, token string) error {
 	return m.Called(ctx, token).Error(0)
 }
 
-func (m *mockService) GetSubscriptions(ctx context.Context, email string) ([]*model.Subscription, error) {
+func (m *mockService) GetSubscriptions(ctx context.Context, email string) ([]*domain.Subscription, error) {
 	args := m.Called(ctx, email)
-	subs, _ := args.Get(0).([]*model.Subscription)
+	subs, _ := args.Get(0).([]*domain.Subscription)
 	return subs, args.Error(1)
 }
 
 func newTestRouter(svc *mockService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := handler.New(svc, svc, svc, svc)
+	h := httpapi.New(svc, svc, svc, svc)
 	api := r.Group("/api")
 	api.POST("/subscribe", h.Subscribe)
 	api.GET("/confirm/:token", h.Confirm)

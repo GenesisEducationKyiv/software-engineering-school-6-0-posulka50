@@ -1,4 +1,4 @@
-package handler
+package httpapi
 
 import (
 	"errors"
@@ -6,8 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/posul/github-notifier/internal/model"
-	"github.com/posul/github-notifier/internal/service"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type subscriptionResponse struct {
@@ -17,7 +18,7 @@ type subscriptionResponse struct {
 	LastSeenTag *string `json:"last_seen_tag,omitempty"`
 }
 
-func toResponse(s *model.Subscription) subscriptionResponse {
+func toResponse(s *domain.Subscription) subscriptionResponse {
 	return subscriptionResponse{
 		Email:       s.Email,
 		Repo:        s.Repo,
@@ -37,7 +38,7 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 	subs, err := h.subscriptionLister.GetSubscriptions(c.Request.Context(), emailAddr)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrInvalidEmail):
+		case errors.Is(err, app.ErrInvalidEmail):
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		default:
 			slog.Error("subscriptions: internal error", "email", emailAddr, "error", err)

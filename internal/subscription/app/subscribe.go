@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -8,12 +8,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasedomain "github.com/posul/github-notifier/internal/release/domain"
-	"github.com/posul/github-notifier/internal/repository"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-]+$`)
@@ -23,7 +22,7 @@ type subscriptionRepoStore interface {
 }
 
 type subscribeSubStore interface {
-	Create(ctx context.Context, sub *model.Subscription) error
+	Create(ctx context.Context, sub *domain.Subscription) error
 	Delete(ctx context.Context, id string) error
 	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
 }
@@ -95,11 +94,11 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 		return ErrAlreadyExists
 	}
 
-	sub := model.NewSubscription(emailAddr, repoRecord.ID, repoName)
+	sub := domain.NewSubscription(emailAddr, repoRecord.ID, repoName)
 
-	slog.Info("service: creating subscription", "email", emailAddr, "repo", repoName)
+	slog.Info("subscription: creating subscription", "email", emailAddr, "repo", repoName)
 	if err := uc.subs.Create(ctx, sub); err != nil {
-		if errors.Is(err, repository.ErrAlreadyExists) {
+		if errors.Is(err, domain.ErrAlreadyExists) {
 			return ErrAlreadyExists
 		}
 		return fmt.Errorf("create subscription: %w", err)

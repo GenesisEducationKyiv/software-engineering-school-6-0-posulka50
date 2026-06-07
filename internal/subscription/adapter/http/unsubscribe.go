@@ -1,4 +1,4 @@
-package handler
+package httpapi
 
 import (
 	"errors"
@@ -7,7 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/posul/github-notifier/internal/service"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
 )
 
 // Unsubscribe handles GET /api/unsubscribe/:token and removes a subscription.
@@ -22,7 +23,7 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 	err := h.unsubscriber.Unsubscribe(c.Request.Context(), token)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrNotFound):
+		case errors.Is(err, app.ErrNotFound):
 			slog.Warn("unsubscribe: token not found", "token", token)
 			c.JSON(http.StatusNotFound, errorResponse{msgTokenNotFound})
 		default:

@@ -19,11 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/posul/github-notifier/internal/handler"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
-	"github.com/posul/github-notifier/internal/repository"
-	"github.com/posul/github-notifier/internal/service"
+	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
+	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 )
 
 var sharedPool *pgxpool.Pool
@@ -134,16 +134,16 @@ func newTestServer(tb testing.TB) *testServer {
 	em := &stubEmail{}
 
 	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
-	subRepo := repository.NewPostgresRepository(sharedPool)
+	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 
-	subscriber := service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")
-	confirmer := service.NewConfirmUseCase(subRepo)
-	unsubscriber := service.NewUnsubscribeUseCase(subRepo)
-	lister := service.NewGetSubscriptionsUseCase(subRepo)
+	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")
+	confirmer := subscriptionapp.NewConfirmUseCase(subRepo)
+	unsubscriber := subscriptionapp.NewUnsubscribeUseCase(subRepo)
+	lister := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := handler.New(subscriber, confirmer, unsubscriber, lister)
+	h := subscriptionhttp.New(subscriber, confirmer, unsubscriber, lister)
 
 	api := r.Group("/api")
 	api.POST("/subscribe", h.Subscribe)

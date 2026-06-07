@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/posul/github-notifier/internal/model"
 	"github.com/posul/github-notifier/internal/platform/metrics"
-	"github.com/posul/github-notifier/internal/repository"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type unsubscribeSubStore interface {
-	GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error)
+	GetByUnsubscribeToken(ctx context.Context, token string) (*domain.Subscription, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -27,7 +26,7 @@ func NewUnsubscribeUseCase(subs unsubscribeSubStore) *UnsubscribeUseCase {
 func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) error {
 	sub, err := uc.subs.GetByUnsubscribeToken(ctx, token)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return ErrNotFound
 		}
 		return fmt.Errorf("get subscription by unsubscribe token: %w", err)
@@ -37,6 +36,6 @@ func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) err
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 	metrics.SubscriptionsRemovedTotal.Inc()
-	slog.Info("service: subscription deleted", "id", sub.ID, "email", sub.Email)
+	slog.Info("subscription: deleted", "id", sub.ID, "email", sub.Email)
 	return nil
 }

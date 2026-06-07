@@ -1,4 +1,4 @@
-package handler_test
+package httpapi_test
 
 import (
 	"errors"
@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/posul/github-notifier/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
 )
 
 func TestSubscribe_Success(t *testing.T) {
@@ -46,7 +47,7 @@ func TestSubscribe_MissingFields(t *testing.T) {
 
 func TestSubscribe_InvalidEmail(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Subscribe", mock.Anything, "bad-email", "golang/go").Return(service.ErrInvalidEmail)
+	svc.On("Subscribe", mock.Anything, "bad-email", "golang/go").Return(app.ErrInvalidEmail)
 
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"bad-email","repo":"golang/go"}`))
@@ -57,7 +58,7 @@ func TestSubscribe_InvalidEmail(t *testing.T) {
 
 func TestSubscribe_InvalidRepo(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Subscribe", mock.Anything, "user@example.com", "badrepo").Return(service.ErrInvalidRepo)
+	svc.On("Subscribe", mock.Anything, "user@example.com", "badrepo").Return(app.ErrInvalidRepo)
 
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"user@example.com","repo":"badrepo"}`))
@@ -68,7 +69,7 @@ func TestSubscribe_InvalidRepo(t *testing.T) {
 
 func TestSubscribe_RepoNotFound(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Subscribe", mock.Anything, "user@example.com", "nobody/norepo").Return(service.ErrRepoNotFound)
+	svc.On("Subscribe", mock.Anything, "user@example.com", "nobody/norepo").Return(app.ErrRepoNotFound)
 
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"user@example.com","repo":"nobody/norepo"}`))
@@ -79,7 +80,7 @@ func TestSubscribe_RepoNotFound(t *testing.T) {
 
 func TestSubscribe_AlreadyExists(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Subscribe", mock.Anything, "user@example.com", "golang/go").Return(service.ErrAlreadyExists)
+	svc.On("Subscribe", mock.Anything, "user@example.com", "golang/go").Return(app.ErrAlreadyExists)
 
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"user@example.com","repo":"golang/go"}`))
@@ -90,7 +91,7 @@ func TestSubscribe_AlreadyExists(t *testing.T) {
 
 func TestSubscribe_RateLimit(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Subscribe", mock.Anything, "user@example.com", "golang/go").Return(service.ErrRateLimit)
+	svc.On("Subscribe", mock.Anything, "user@example.com", "golang/go").Return(app.ErrRateLimit)
 
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"user@example.com","repo":"golang/go"}`))

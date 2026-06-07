@@ -1,14 +1,15 @@
-package handler_test
+package httpapi_test
 
 import (
 	"errors"
 	"net/http"
 	"testing"
 
-	"github.com/posul/github-notifier/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
 )
 
 const validToken = "550e8400-e29b-41d4-a716-446655440000"
@@ -35,7 +36,7 @@ func TestConfirm_InvalidTokenFormat(t *testing.T) {
 
 func TestConfirm_TokenNotFound(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Confirm", mock.Anything, validToken).Return(service.ErrNotFound)
+	svc.On("Confirm", mock.Anything, validToken).Return(app.ErrNotFound)
 
 	w := doRequest(newTestRouter(svc), http.MethodGet, "/api/confirm/"+validToken, nil)
 

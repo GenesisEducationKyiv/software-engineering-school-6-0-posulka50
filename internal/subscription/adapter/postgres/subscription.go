@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -8,21 +8,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/posul/github-notifier/internal/model"
+
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
-var (
-	ErrNotFound      = errors.New("not found")
-	ErrAlreadyExists = errors.New("already exists")
-)
-
-// PostgresRepository is a PostgreSQL implementation of the subscription storage.
-type PostgresRepository struct {
+// SubscriptionRepository is a PostgreSQL implementation of the subscription storage.
+type SubscriptionRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewPostgresRepository(db *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{db: db}
+func NewSubscriptionRepository(db *pgxpool.Pool) *SubscriptionRepository {
+	return &SubscriptionRepository{db: db}
 }
 
 const subSelectCols = `
@@ -33,7 +29,7 @@ const subFromJoin = `
 	FROM subscriptions s
 	INNER JOIN repositories r ON r.id = s.repo_id`
 
-func (r *PostgresRepository) Create(ctx context.Context, sub *model.Subscription) error {
+func (r *SubscriptionRepository) Create(ctx context.Context, sub *domain.Subscription) error {
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO subscriptions (id, repo_id, email, confirmed, confirm_token, unsubscribe_token, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -42,15 +38,15 @@ func (r *PostgresRepository) Create(ctx context.Context, sub *model.Subscription
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return ErrAlreadyExists
+			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("create subscription: %w", err)
 	}
 	return nil
 }
 
-func (r *PostgresRepository) GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error) {
-	var sub model.Subscription
+func (r *SubscriptionRepository) GetByConfirmToken(ctx context.Context, token string) (*domain.Subscription, error) {
+	var sub domain.Subscription
 	err := r.db.QueryRow(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
 		 WHERE s.confirm_token = $1`, token,
@@ -58,15 +54,15 @@ func (r *PostgresRepository) GetByConfirmToken(ctx context.Context, token string
 		&sub.ConfirmToken, &sub.UnsubscribeToken, &sub.CreatedAt, &sub.LastSeenTag)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get by confirm token: %w", err)
 	}
 	return &sub, nil
 }
 
-func (r *PostgresRepository) GetByUnsubscribeToken(ctx context.Context, token string) (*model.Subscription, error) {
-	var sub model.Subscription
+func (r *SubscriptionRepository) GetByUnsubscribeToken(ctx context.Context, token string) (*domain.Subscription, error) {
+	var sub domain.Subscription
 	err := r.db.QueryRow(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
 		 WHERE s.unsubscribe_token = $1`, token,
@@ -74,14 +70,14 @@ func (r *PostgresRepository) GetByUnsubscribeToken(ctx context.Context, token st
 		&sub.ConfirmToken, &sub.UnsubscribeToken, &sub.CreatedAt, &sub.LastSeenTag)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get by unsubscribe token: %w", err)
 	}
 	return &sub, nil
 }
 
-func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error) {
+func (r *SubscriptionRepository) GetByEmail(ctx context.Context, email string) ([]*domain.Subscription, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
 		 WHERE s.email = $1 AND s.confirmed = true`, email,
@@ -93,7 +89,7 @@ func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) ([]*m
 	return scanSubscriptions(rows)
 }
 
-func (r *PostgresRepository) GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error) {
+func (r *SubscriptionRepository) GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*domain.Subscription, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT`+subSelectCols+subFromJoin+`
 		 WHERE s.repo_id = $1 AND s.confirmed = true`, repoID,
@@ -105,29 +101,29 @@ func (r *PostgresRepository) GetConfirmedByRepoID(ctx context.Context, repoID st
 	return scanSubscriptions(rows)
 }
 
-func (r *PostgresRepository) Confirm(ctx context.Context, id string) error {
+func (r *SubscriptionRepository) Confirm(ctx context.Context, id string) error {
 	result, err := r.db.Exec(ctx, `UPDATE subscriptions SET confirmed = true WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("confirm subscription: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return ErrNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *PostgresRepository) Delete(ctx context.Context, id string) error {
+func (r *SubscriptionRepository) Delete(ctx context.Context, id string) error {
 	result, err := r.db.Exec(ctx, `DELETE FROM subscriptions WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return ErrNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *PostgresRepository) ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error) {
+func (r *SubscriptionRepository) ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM subscriptions WHERE email = $1 AND repo_id = $2)`,
@@ -139,10 +135,10 @@ func (r *PostgresRepository) ExistsByEmailAndRepoID(ctx context.Context, email, 
 	return exists, nil
 }
 
-func scanSubscriptions(rows pgx.Rows) ([]*model.Subscription, error) {
-	var subs []*model.Subscription
+func scanSubscriptions(rows pgx.Rows) ([]*domain.Subscription, error) {
+	var subs []*domain.Subscription
 	for rows.Next() {
-		var sub model.Subscription
+		var sub domain.Subscription
 		if err := rows.Scan(
 			&sub.ID, &sub.RepoID, &sub.Repo, &sub.Email, &sub.Confirmed,
 			&sub.ConfirmToken, &sub.UnsubscribeToken, &sub.CreatedAt, &sub.LastSeenTag,

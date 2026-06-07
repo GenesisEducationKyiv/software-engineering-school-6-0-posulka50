@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/posul/github-notifier/internal/model"
 	"github.com/posul/github-notifier/internal/platform/metrics"
-	"github.com/posul/github-notifier/internal/repository"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type confirmSubStore interface {
-	GetByConfirmToken(ctx context.Context, token string) (*model.Subscription, error)
+	GetByConfirmToken(ctx context.Context, token string) (*domain.Subscription, error)
 	Confirm(ctx context.Context, id string) error
 }
 
@@ -27,7 +26,7 @@ func NewConfirmUseCase(subs confirmSubStore) *ConfirmUseCase {
 func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
 	sub, err := uc.subs.GetByConfirmToken(ctx, token)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return ErrNotFound
 		}
 		return fmt.Errorf("get subscription by confirm token: %w", err)
@@ -37,6 +36,6 @@ func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
 		return fmt.Errorf("confirm subscription: %w", err)
 	}
 	metrics.SubscriptionsConfirmedTotal.Inc()
-	slog.Info("service: subscription confirmed", "id", sub.ID)
+	slog.Info("subscription: confirmed", "id", sub.ID)
 	return nil
 }

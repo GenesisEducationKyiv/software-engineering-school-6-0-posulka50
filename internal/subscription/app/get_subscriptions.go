@@ -1,14 +1,14 @@
-package service
+package app
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/posul/github-notifier/internal/model"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type getSubsStore interface {
-	GetByEmail(ctx context.Context, email string) ([]*model.Subscription, error)
+	GetByEmail(ctx context.Context, email string) ([]*domain.Subscription, error)
 }
 
 type GetSubscriptionsUseCase struct {
@@ -19,7 +19,7 @@ func NewGetSubscriptionsUseCase(subs getSubsStore) *GetSubscriptionsUseCase {
 	return &GetSubscriptionsUseCase{subs: subs}
 }
 
-func (uc *GetSubscriptionsUseCase) GetSubscriptions(ctx context.Context, emailAddr string) ([]*model.Subscription, error) {
+func (uc *GetSubscriptionsUseCase) GetSubscriptions(ctx context.Context, emailAddr string) ([]*domain.Subscription, error) {
 	if !isValidEmail(emailAddr) {
 		return nil, ErrInvalidEmail
 	}
@@ -29,7 +29,7 @@ func (uc *GetSubscriptionsUseCase) GetSubscriptions(ctx context.Context, emailAd
 		return nil, fmt.Errorf("get subscriptions: %w", err)
 	}
 	if subs == nil {
-		subs = []*model.Subscription{}
+		subs = []*domain.Subscription{}
 	}
 	return subs, nil
 }

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	"github.com/posul/github-notifier/internal/release/domain"
+	subscriptiondomain "github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type releaseChecker interface {
@@ -25,7 +25,7 @@ type scannerRepoStore interface {
 }
 
 type scannerSubStore interface {
-	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*model.Subscription, error)
+	GetConfirmedByRepoID(ctx context.Context, repoID string) ([]*subscriptiondomain.Subscription, error)
 }
 
 type releaseSender interface {

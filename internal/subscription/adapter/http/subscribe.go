@@ -1,4 +1,4 @@
-package handler
+package httpapi
 
 import (
 	"errors"
@@ -6,7 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/posul/github-notifier/internal/service"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
 )
 
 // Subscribe handles POST /api/subscribe and creates a new pending subscription.
@@ -33,17 +34,17 @@ func (h *Handler) Subscribe(c *gin.Context) {
 	err := h.subscriber.Subscribe(c.Request.Context(), email, repo)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrInvalidEmail),
-			errors.Is(err, service.ErrInvalidRepo):
+		case errors.Is(err, app.ErrInvalidEmail),
+			errors.Is(err, app.ErrInvalidRepo):
 			slog.Warn("subscribe: validation error", "error", err)
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
-		case errors.Is(err, service.ErrRepoNotFound):
+		case errors.Is(err, app.ErrRepoNotFound):
 			slog.Warn("subscribe: repo not found", "repo", repo)
 			c.JSON(http.StatusNotFound, errorResponse{err.Error()})
-		case errors.Is(err, service.ErrAlreadyExists):
+		case errors.Is(err, app.ErrAlreadyExists):
 			slog.Warn("subscribe: already exists", "email", email, "repo", repo)
 			c.JSON(http.StatusConflict, errorResponse{err.Error()})
-		case errors.Is(err, service.ErrRateLimit):
+		case errors.Is(err, app.ErrRateLimit):
 			slog.Warn("subscribe: github rate limit hit")
 			c.JSON(http.StatusTooManyRequests, errorResponse{err.Error()})
 		default:

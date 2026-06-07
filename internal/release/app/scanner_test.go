@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/release/adapter/github"
 	"github.com/posul/github-notifier/internal/release/app"
 	"github.com/posul/github-notifier/internal/release/domain"
+	subscriptiondomain "github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type mockRepoRepo struct {
@@ -44,19 +44,19 @@ func (m *mockRepoRepo) UpdateLastSeenTag(_ context.Context, id, tag string) erro
 }
 
 type mockSubRepo struct {
-	subs         map[string]*model.Subscription
+	subs         map[string]*subscriptiondomain.Subscription
 	confirmedIDs map[string]bool
 }
 
 func newMockSubRepo() *mockSubRepo {
 	return &mockSubRepo{
-		subs:         make(map[string]*model.Subscription),
+		subs:         make(map[string]*subscriptiondomain.Subscription),
 		confirmedIDs: make(map[string]bool),
 	}
 }
 
-func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]*model.Subscription, error) {
-	var result []*model.Subscription
+func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]*subscriptiondomain.Subscription, error) {
+	var result []*subscriptiondomain.Subscription
 	for _, s := range m.subs {
 		if s.RepoID == repoID && m.confirmedIDs[s.ID] {
 			result = append(result, s)
@@ -98,7 +98,7 @@ func repoWithSubs(fullName string, lastTag *string, subEmail, subID, unsubToken 
 	repo := &domain.Repository{ID: fullName, FullName: fullName, LastSeenTag: lastTag}
 	rr.repos[fullName] = repo
 
-	sub := &model.Subscription{
+	sub := &subscriptiondomain.Subscription{
 		ID:               subID,
 		RepoID:           fullName,
 		Repo:             fullName,

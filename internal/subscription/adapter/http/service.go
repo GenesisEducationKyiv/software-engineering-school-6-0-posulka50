@@ -1,9 +1,9 @@
-package handler
+package httpapi
 
 import (
 	"context"
 
-	"github.com/posul/github-notifier/internal/model"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type Subscriber interface {
@@ -19,5 +19,5 @@ type Unsubscriber interface {
 }
 
 type SubscriptionLister interface {
-	GetSubscriptions(ctx context.Context, email string) ([]*model.Subscription, error)
+	GetSubscriptions(ctx context.Context, email string) ([]*domain.Subscription, error)
 }

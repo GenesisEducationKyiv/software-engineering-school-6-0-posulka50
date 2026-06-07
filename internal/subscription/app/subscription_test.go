@@ -1,16 +1,15 @@
-package service_test
+package app_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasedomain "github.com/posul/github-notifier/internal/release/domain"
-	"github.com/posul/github-notifier/internal/repository"
-	"github.com/posul/github-notifier/internal/service"
+	"github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 type mockRepoRepo struct {
@@ -54,29 +53,29 @@ func (m *mockRepoRepo) UpdateLastSeenTag(_ context.Context, id, tag string) erro
 }
 
 type mockSubRepo struct {
-	subs           map[string]*model.Subscription
-	byConfirmToken map[string]*model.Subscription
-	byUnsubToken   map[string]*model.Subscription
+	subs           map[string]*domain.Subscription
+	byConfirmToken map[string]*domain.Subscription
+	byUnsubToken   map[string]*domain.Subscription
 	confirmedIDs   map[string]bool
 	createErr      error
 }
 
 func newMockSubRepo() *mockSubRepo {
 	return &mockSubRepo{
-		subs:           make(map[string]*model.Subscription),
-		byConfirmToken: make(map[string]*model.Subscription),
-		byUnsubToken:   make(map[string]*model.Subscription),
+		subs:           make(map[string]*domain.Subscription),
+		byConfirmToken: make(map[string]*domain.Subscription),
+		byUnsubToken:   make(map[string]*domain.Subscription),
 		confirmedIDs:   make(map[string]bool),
 	}
 }
 
-func (m *mockSubRepo) Create(_ context.Context, sub *model.Subscription) error {
+func (m *mockSubRepo) Create(_ context.Context, sub *domain.Subscription) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
 	for _, s := range m.subs {
 		if s.Email == sub.Email && s.RepoID == sub.RepoID {
-			return repository.ErrAlreadyExists
+			return domain.ErrAlreadyExists
 		}
 	}
 	m.subs[sub.ID] = sub
@@ -85,22 +84,22 @@ func (m *mockSubRepo) Create(_ context.Context, sub *model.Subscription) error {
 	return nil
 }
 
-func (m *mockSubRepo) GetByConfirmToken(_ context.Context, token string) (*model.Subscription, error) {
+func (m *mockSubRepo) GetByConfirmToken(_ context.Context, token string) (*domain.Subscription, error) {
 	if sub, ok := m.byConfirmToken[token]; ok {
 		return sub, nil
 	}
-	return nil, repository.ErrNotFound
+	return nil, domain.ErrNotFound
 }
 
-func (m *mockSubRepo) GetByUnsubscribeToken(_ context.Context, token string) (*model.Subscription, error) {
+func (m *mockSubRepo) GetByUnsubscribeToken(_ context.Context, token string) (*domain.Subscription, error) {
 	if sub, ok := m.byUnsubToken[token]; ok {
 		return sub, nil
 	}
-	return nil, repository.ErrNotFound
+	return nil, domain.ErrNotFound
 }
 
-func (m *mockSubRepo) GetByEmail(_ context.Context, emailAddr string) ([]*model.Subscription, error) {
-	var result []*model.Subscription
+func (m *mockSubRepo) GetByEmail(_ context.Context, emailAddr string) ([]*domain.Subscription, error) {
+	var result []*domain.Subscription
 	for _, s := range m.subs {
 		if s.Email == emailAddr && m.confirmedIDs[s.ID] {
 			result = append(result, s)
@@ -109,8 +108,8 @@ func (m *mockSubRepo) GetByEmail(_ context.Context, emailAddr string) ([]*model.
 	return result, nil
 }
 
-func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]*model.Subscription, error) {
-	var result []*model.Subscription
+func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]*domain.Subscription, error) {
+	var result []*domain.Subscription
 	for _, s := range m.subs {
 		if s.RepoID == repoID && m.confirmedIDs[s.ID] {
 			result = append(result, s)
@@ -121,7 +120,7 @@ func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]
 
 func (m *mockSubRepo) Confirm(_ context.Context, id string) error {
 	if _, ok := m.subs[id]; !ok {
-		return repository.ErrNotFound
+		return domain.ErrNotFound
 	}
 	m.confirmedIDs[id] = true
 	return nil
@@ -130,7 +129,7 @@ func (m *mockSubRepo) Confirm(_ context.Context, id string) error {
 func (m *mockSubRepo) Delete(_ context.Context, id string) error {
 	sub, ok := m.subs[id]
 	if !ok {
-		return repository.ErrNotFound
+		return domain.ErrNotFound
 	}
 	delete(m.byConfirmToken, sub.ConfirmToken)
 	delete(m.byUnsubToken, sub.UnsubscribeToken)
@@ -169,8 +168,8 @@ func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ notif
 	return nil
 }
 
-func newSubscribeUC(repos *mockRepoRepo, subs *mockSubRepo, gh *mockGitHub, em *mockEmail) *service.SubscribeUseCase {
-	return service.NewSubscribeUseCase(repos, subs, gh, em, "http://localhost:8080")
+func newSubscribeUC(repos *mockRepoRepo, subs *mockSubRepo, gh *mockGitHub, em *mockEmail) *app.SubscribeUseCase {
+	return app.NewSubscribeUseCase(repos, subs, gh, em, "http://localhost:8080")
 }
 
 func TestSubscribe_Success(t *testing.T) {
@@ -193,7 +192,7 @@ func TestSubscribe_Success(t *testing.T) {
 func TestSubscribe_InvalidEmail(t *testing.T) {
 	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
 	err := uc.Subscribe(context.Background(), "not-an-email", "golang/go")
-	if !errors.Is(err, service.ErrInvalidEmail) {
+	if !errors.Is(err, app.ErrInvalidEmail) {
 		t.Fatalf("expected ErrInvalidEmail, got %v", err)
 	}
 }
@@ -203,7 +202,7 @@ func TestSubscribe_InvalidRepoFormat(t *testing.T) {
 	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{}, &mockEmail{})
 	for _, tc := range cases {
 		err := uc.Subscribe(context.Background(), "user@example.com", tc)
-		if !errors.Is(err, service.ErrInvalidRepo) {
+		if !errors.Is(err, app.ErrInvalidRepo) {
 			t.Errorf("repo=%q: expected ErrInvalidRepo, got %v", tc, err)
 		}
 	}
@@ -212,7 +211,7 @@ func TestSubscribe_InvalidRepoFormat(t *testing.T) {
 func TestSubscribe_RepoNotFound(t *testing.T) {
 	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrNotFound}, &mockEmail{})
 	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
-	if !errors.Is(err, service.ErrRepoNotFound) {
+	if !errors.Is(err, app.ErrRepoNotFound) {
 		t.Fatalf("expected ErrRepoNotFound, got %v", err)
 	}
 }
@@ -220,7 +219,7 @@ func TestSubscribe_RepoNotFound(t *testing.T) {
 func TestSubscribe_RateLimit(t *testing.T) {
 	uc := newSubscribeUC(newMockRepoRepo(), newMockSubRepo(), &mockGitHub{err: githubclient.ErrRateLimit}, &mockEmail{})
 	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
-	if !errors.Is(err, service.ErrRateLimit) {
+	if !errors.Is(err, app.ErrRateLimit) {
 		t.Fatalf("expected ErrRateLimit, got %v", err)
 	}
 }
@@ -232,7 +231,7 @@ func TestSubscribe_Duplicate(t *testing.T) {
 
 	_ = uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
-	if !errors.Is(err, service.ErrAlreadyExists) {
+	if !errors.Is(err, app.ErrAlreadyExists) {
 		t.Fatalf("expected ErrAlreadyExists, got %v", err)
 	}
 }
@@ -247,7 +246,7 @@ func TestConfirm_Success(t *testing.T) {
 		confirmToken = s.ConfirmToken
 	}
 
-	if err := service.NewConfirmUseCase(subs).Confirm(context.Background(), confirmToken); err != nil {
+	if err := app.NewConfirmUseCase(subs).Confirm(context.Background(), confirmToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 
@@ -261,8 +260,8 @@ func TestConfirm_Success(t *testing.T) {
 }
 
 func TestConfirm_TokenNotFound(t *testing.T) {
-	err := service.NewConfirmUseCase(newMockSubRepo()).Confirm(context.Background(), "nonexistent-token")
-	if !errors.Is(err, service.ErrNotFound) {
+	err := app.NewConfirmUseCase(newMockSubRepo()).Confirm(context.Background(), "nonexistent-token")
+	if !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -277,7 +276,7 @@ func TestUnsubscribe_Success(t *testing.T) {
 		unsubToken = s.UnsubscribeToken
 	}
 
-	if err := service.NewUnsubscribeUseCase(subs).Unsubscribe(context.Background(), unsubToken); err != nil {
+	if err := app.NewUnsubscribeUseCase(subs).Unsubscribe(context.Background(), unsubToken); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 	if len(subs.subs) != 0 {
@@ -286,15 +285,15 @@ func TestUnsubscribe_Success(t *testing.T) {
 }
 
 func TestUnsubscribe_TokenNotFound(t *testing.T) {
-	err := service.NewUnsubscribeUseCase(newMockSubRepo()).Unsubscribe(context.Background(), "bad-token")
-	if !errors.Is(err, service.ErrNotFound) {
+	err := app.NewUnsubscribeUseCase(newMockSubRepo()).Unsubscribe(context.Background(), "bad-token")
+	if !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestGetSubscriptions_InvalidEmail(t *testing.T) {
-	_, err := service.NewGetSubscriptionsUseCase(newMockSubRepo()).GetSubscriptions(context.Background(), "notanemail")
-	if !errors.Is(err, service.ErrInvalidEmail) {
+	_, err := app.NewGetSubscriptionsUseCase(newMockSubRepo()).GetSubscriptions(context.Background(), "notanemail")
+	if !errors.Is(err, app.ErrInvalidEmail) {
 		t.Fatalf("expected ErrInvalidEmail, got %v", err)
 	}
 }
@@ -313,9 +312,9 @@ func TestGetSubscriptions_ReturnsOnlyConfirmed(t *testing.T) {
 			firstConfirmToken = s.ConfirmToken
 		}
 	}
-	_ = service.NewConfirmUseCase(subs).Confirm(context.Background(), firstConfirmToken)
+	_ = app.NewConfirmUseCase(subs).Confirm(context.Background(), firstConfirmToken)
 
-	result, err := service.NewGetSubscriptionsUseCase(subs).GetSubscriptions(context.Background(), "user@example.com")
+	result, err := app.NewGetSubscriptionsUseCase(subs).GetSubscriptions(context.Background(), "user@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

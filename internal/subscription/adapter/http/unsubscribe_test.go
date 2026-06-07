@@ -1,14 +1,15 @@
-package handler_test
+package httpapi_test
 
 import (
 	"errors"
 	"net/http"
 	"testing"
 
-	"github.com/posul/github-notifier/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
 )
 
 func TestUnsubscribe_Success(t *testing.T) {
@@ -33,7 +34,7 @@ func TestUnsubscribe_InvalidTokenFormat(t *testing.T) {
 
 func TestUnsubscribe_TokenNotFound(t *testing.T) {
 	svc := &mockService{}
-	svc.On("Unsubscribe", mock.Anything, validToken).Return(service.ErrNotFound)
+	svc.On("Unsubscribe", mock.Anything, validToken).Return(app.ErrNotFound)
 
 	w := doRequest(newTestRouter(svc), http.MethodGet, "/api/unsubscribe/"+validToken, nil)
 

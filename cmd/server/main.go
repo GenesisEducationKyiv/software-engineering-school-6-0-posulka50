@@ -20,7 +20,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/posul/github-notifier/internal/handler"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
 	"github.com/posul/github-notifier/internal/platform/config"
@@ -28,8 +27,9 @@ import (
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	releaseapp "github.com/posul/github-notifier/internal/release/app"
-	"github.com/posul/github-notifier/internal/repository"
-	"github.com/posul/github-notifier/internal/service"
+	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
+	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 )
 
 func main() {
@@ -62,7 +62,7 @@ func run() error {
 
 	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, cfg)
 
-	router := newRouter(cfg, handler.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
+	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -146,7 +146,7 @@ func initRedis(redisURL string) *redis.Client {
 	return client
 }
 
-func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
+func newRouter(cfg *config.Config, h *subscriptionhttp.Handler) *gin.Engine {
 	gin.SetMode(cfg.GinMode)
 
 	router := gin.New()
@@ -189,14 +189,14 @@ func newServer(port string, handler http.Handler) *http.Server {
 }
 
 func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (
-	*service.SubscribeUseCase,
-	*service.ConfirmUseCase,
-	*service.UnsubscribeUseCase,
-	*service.GetSubscriptionsUseCase,
+	*subscriptionapp.SubscribeUseCase,
+	*subscriptionapp.ConfirmUseCase,
+	*subscriptionapp.UnsubscribeUseCase,
+	*subscriptionapp.GetSubscriptionsUseCase,
 	*releaseapp.Scanner,
 ) {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
-	subRepo := repository.NewPostgresRepository(dbPool)
+	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
 	emailSender := resend.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, templates.NewRenderer())
@@ -208,10 +208,10 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subscribeUC := service.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
-	confirmUC := service.NewConfirmUseCase(subRepo)
-	unsubscribeUC := service.NewUnsubscribeUseCase(subRepo)
-	getSubsUC := service.NewGetSubscriptionsUseCase(subRepo)
+	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
+	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
+	unsubscribeUC := subscriptionapp.NewUnsubscribeUseCase(subRepo)
+	getSubsUC := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {

@@ -1,20 +1,21 @@
-package handler_test
+package httpapi_test
 
 import (
 	"errors"
 	"net/http"
 	"testing"
 
-	"github.com/posul/github-notifier/internal/model"
-	"github.com/posul/github-notifier/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/domain"
 )
 
 func TestGetSubscriptions_Success(t *testing.T) {
 	svc := &mockService{}
-	subs := []*model.Subscription{
+	subs := []*domain.Subscription{
 		{Email: "user@example.com", Repo: "golang/go", Confirmed: true},
 		{Email: "user@example.com", Repo: "gin-gonic/gin", Confirmed: true},
 	}
@@ -30,7 +31,7 @@ func TestGetSubscriptions_Success(t *testing.T) {
 
 func TestGetSubscriptions_EmptyList(t *testing.T) {
 	svc := &mockService{}
-	svc.On("GetSubscriptions", mock.Anything, "user@example.com").Return([]*model.Subscription{}, nil)
+	svc.On("GetSubscriptions", mock.Anything, "user@example.com").Return([]*domain.Subscription{}, nil)
 
 	w := doRequest(newTestRouter(svc), http.MethodGet, "/api/subscriptions?email=user@example.com", nil)
 
@@ -50,7 +51,7 @@ func TestGetSubscriptions_MissingEmail(t *testing.T) {
 
 func TestGetSubscriptions_InvalidEmail(t *testing.T) {
 	svc := &mockService{}
-	svc.On("GetSubscriptions", mock.Anything, "bad-email").Return(nil, service.ErrInvalidEmail)
+	svc.On("GetSubscriptions", mock.Anything, "bad-email").Return(nil, app.ErrInvalidEmail)
 
 	w := doRequest(newTestRouter(svc), http.MethodGet, "/api/subscriptions?email=bad-email", nil)
 
