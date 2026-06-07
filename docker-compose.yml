@@ -2,7 +2,10 @@ version: "3.9"
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        TARGET: server
     ports:
       - "8080:8080"
     environment:
@@ -12,14 +15,30 @@ services:
       SCAN_INTERVAL: ${SCAN_INTERVAL:-1h}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       API_KEY: ${API_KEY:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
+      NOTIFIER_URL: http://notifier:8081
       GIN_MODE: release
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      notifier:
+        condition: service_started
+    restart: unless-stopped
+
+  notifier:
+    build:
+      context: .
+      args:
+        TARGET: notifier
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: "8081"
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      RESEND_API_URL: ${RESEND_API_URL:-https://api.resend.com/emails}
+      GIN_MODE: release
     restart: unless-stopped
 
   db:
