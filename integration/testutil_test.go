@@ -19,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	notifierhttp "github.com/posul/github-notifier/internal/notifier/adapter/http"
+	"github.com/posul/github-notifier/internal/notifier/adapter/httpclient"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
@@ -97,6 +99,9 @@ type stubGitHub struct{ err error }
 
 func (s *stubGitHub) CheckRepo(_ context.Context, _, _ string) error { return s.err }
 
+// stubEmail satisfies notifier/adapter/http.Sender. It is mounted behind the
+// notifier-service HTTP handler in tests so the server-under-test exercises
+// the real HTTP transport.
 type stubEmail struct {
 	confirmations []string
 	err           error
@@ -121,8 +126,10 @@ type testServer struct {
 	pool *pgxpool.Pool
 }
 
-// newTestServer wires up an httptest.Server backed by the shared PostgreSQL instance.
-// Tables are truncated before each test to ensure isolation.
+// newTestServer wires up an httptest.Server backed by the shared PostgreSQL
+// instance. A second in-process httptest.Server hosts the notifier handler so
+// the monolith reaches it over real HTTP via httpclient. Tables are truncated
+// before each test to ensure isolation.
 func newTestServer(tb testing.TB) *testServer {
 	tb.Helper()
 
@@ -133,15 +140,25 @@ func newTestServer(tb testing.TB) *testServer {
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
+	gin.SetMode(gin.TestMode)
+
+	notifierGin := gin.New()
+	notifierH := notifierhttp.New(em)
+	notifierGin.POST("/v1/notifications/confirmation", notifierH.Confirmation)
+	notifierGin.POST("/v1/notifications/release", notifierH.Release)
+	notifierSrv := httptest.NewServer(notifierGin)
+	tb.Cleanup(notifierSrv.Close)
+
+	emailClient := httpclient.NewClient(notifierSrv.URL)
+
 	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 
-	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")
+	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, emailClient, "http://test")
 	confirmer := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscriber := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	lister := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
 
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h := subscriptionhttp.New(subscriber, confirmer, unsubscriber, lister)
 
