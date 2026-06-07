@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/posul/github-notifier/internal/metrics"
 	"github.com/posul/github-notifier/internal/model"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 	"github.com/posul/github-notifier/internal/repository"
 )
 

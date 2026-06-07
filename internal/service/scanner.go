@@ -10,8 +10,8 @@ import (
 
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
-	"github.com/posul/github-notifier/internal/metrics"
 	"github.com/posul/github-notifier/internal/model"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
 type releaseChecker interface {

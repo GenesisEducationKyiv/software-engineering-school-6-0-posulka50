@@ -20,11 +20,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/posul/github-notifier/internal/config"
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/handler"
-	"github.com/posul/github-notifier/internal/middleware"
+	"github.com/posul/github-notifier/internal/platform/config"
+	"github.com/posul/github-notifier/internal/platform/middleware"
 	"github.com/posul/github-notifier/internal/repository"
 	"github.com/posul/github-notifier/internal/service"
 )

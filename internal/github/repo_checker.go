@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/posul/github-notifier/internal/metrics"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
 // RepoCheckerClient checks GitHub repository existence via the REST API.

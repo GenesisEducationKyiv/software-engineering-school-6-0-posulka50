@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/posul/github-notifier/internal/metrics"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
 // ReleaseFetcherClient fetches the latest GitHub release via the REST API.

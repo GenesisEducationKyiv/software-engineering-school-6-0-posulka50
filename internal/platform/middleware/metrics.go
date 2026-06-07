@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/posul/github-notifier/internal/metrics"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
 func Prometheus() gin.HandlerFunc {
