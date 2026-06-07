@@ -1,32 +1,82 @@
-package service_test
+package app_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
-	"github.com/posul/github-notifier/internal/service"
+	"github.com/posul/github-notifier/internal/release/adapter/github"
+	"github.com/posul/github-notifier/internal/release/app"
+	"github.com/posul/github-notifier/internal/release/domain"
 )
 
+type mockRepoRepo struct {
+	repos        map[string]*domain.Repository
+	lastSeenTags map[string]string
+}
+
+func newMockRepoRepo() *mockRepoRepo {
+	return &mockRepoRepo{
+		repos:        make(map[string]*domain.Repository),
+		lastSeenTags: make(map[string]string),
+	}
+}
+
+func (m *mockRepoRepo) GetAllWithConfirmedSubscriptions(_ context.Context) ([]*domain.Repository, error) {
+	var result []*domain.Repository
+	for _, r := range m.repos {
+		result = append(result, r)
+	}
+	return result, nil
+}
+
+func (m *mockRepoRepo) UpdateLastSeenTag(_ context.Context, id, tag string) error {
+	m.lastSeenTags[id] = tag
+	for _, r := range m.repos {
+		if r.ID == id {
+			t := tag
+			r.LastSeenTag = &t
+		}
+	}
+	return nil
+}
+
+type mockSubRepo struct {
+	subs         map[string]*model.Subscription
+	confirmedIDs map[string]bool
+}
+
+func newMockSubRepo() *mockSubRepo {
+	return &mockSubRepo{
+		subs:         make(map[string]*model.Subscription),
+		confirmedIDs: make(map[string]bool),
+	}
+}
+
+func (m *mockSubRepo) GetConfirmedByRepoID(_ context.Context, repoID string) ([]*model.Subscription, error) {
+	var result []*model.Subscription
+	for _, s := range m.subs {
+		if s.RepoID == repoID && m.confirmedIDs[s.ID] {
+			result = append(result, s)
+		}
+	}
+	return result, nil
+}
+
 type mockReleaseChecker struct {
-	release *githubclient.Release
+	release *github.Release
 	err     error
 }
 
-func (m *mockReleaseChecker) GetLatestRelease(_ context.Context, _, _ string) (*githubclient.Release, error) {
+func (m *mockReleaseChecker) GetLatestRelease(_ context.Context, _, _ string) (*github.Release, error) {
 	return m.release, m.err
 }
 
 type mockNotifier struct {
 	releaseEmails []string
 	releaseErr    error
-}
-
-func (m *mockNotifier) SendConfirmation(_ context.Context, _ string, _ notifierdomain.ConfirmData) error {
-	return nil
 }
 
 func (m *mockNotifier) SendReleaseNotification(_ context.Context, to string, _ notifierdomain.ReleaseData) error {
@@ -45,7 +95,7 @@ func repoWithSubs(fullName string, lastTag *string, subEmail, subID, unsubToken 
 	rr := newMockRepoRepo()
 	sr := newMockSubRepo()
 
-	repo := &model.Repository{ID: fullName, FullName: fullName, LastSeenTag: lastTag}
+	repo := &domain.Repository{ID: fullName, FullName: fullName, LastSeenTag: lastTag}
 	rr.repos[fullName] = repo
 
 	sub := &model.Subscription{
@@ -62,13 +112,13 @@ func repoWithSubs(fullName string, lastTag *string, subEmail, subID, unsubToken 
 	return rr, sr
 }
 
-func newScanner(rr *mockRepoRepo, sr *mockSubRepo, gh *mockReleaseChecker, em *mockNotifier) *service.Scanner {
-	return service.NewScanner(rr, sr, gh, em, "http://localhost:8080", time.Hour)
+func newScanner(rr *mockRepoRepo, sr *mockSubRepo, gh *mockReleaseChecker, em *mockNotifier) *app.Scanner {
+	return app.NewScanner(rr, sr, gh, em, "http://localhost:8080", time.Hour)
 }
 
 func TestScanner_SendsNotificationOnNewRelease(t *testing.T) {
 	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id1", "unsub1")
-	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: "v1.1.0", Name: "Go 1.1"}}
+	gh := &mockReleaseChecker{release: &github.Release{TagName: "v1.1.0", Name: "Go 1.1"}}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -83,7 +133,7 @@ func TestScanner_SendsNotificationOnNewRelease(t *testing.T) {
 
 func TestScanner_NoNotificationWhenTagUnchanged(t *testing.T) {
 	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id2", "unsub2")
-	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: initialTag}}
+	gh := &mockReleaseChecker{release: &github.Release{TagName: initialTag}}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -95,7 +145,7 @@ func TestScanner_NoNotificationWhenTagUnchanged(t *testing.T) {
 
 func TestScanner_SetsInitialTagWithoutNotifying(t *testing.T) {
 	rr, sr := repoWithSubs("golang/go", nil, "other@example.com", "id1", "unsub1")
-	gh := &mockReleaseChecker{release: &githubclient.Release{TagName: initialTag}}
+	gh := &mockReleaseChecker{release: &github.Release{TagName: initialTag}}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -113,10 +163,10 @@ func TestScanner_StopsOnRateLimit(t *testing.T) {
 	sr := newMockSubRepo()
 
 	for _, full := range []string{"owner/repo1", "owner/repo2"} {
-		rr.repos[full] = &model.Repository{ID: full, FullName: full, LastSeenTag: ptr(initialTag)}
+		rr.repos[full] = &domain.Repository{ID: full, FullName: full, LastSeenTag: ptr(initialTag)}
 	}
 
-	gh := &mockReleaseChecker{err: githubclient.ErrRateLimit}
+	gh := &mockReleaseChecker{err: github.ErrRateLimit}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())
@@ -128,7 +178,7 @@ func TestScanner_StopsOnRateLimit(t *testing.T) {
 
 func TestScanner_SkipsOnNoRelease(t *testing.T) {
 	rr, sr := repoWithSubs("golang/go", ptr(initialTag), "user@example.com", "id1", "unsub1")
-	gh := &mockReleaseChecker{err: githubclient.ErrNotFound}
+	gh := &mockReleaseChecker{err: github.ErrNotFound}
 	em := &mockNotifier{}
 
 	newScanner(rr, sr, gh, em).RunOnce(context.Background())

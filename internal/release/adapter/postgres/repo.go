@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"context"
@@ -7,19 +7,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/posul/github-notifier/internal/model"
+
+	"github.com/posul/github-notifier/internal/release/domain"
 )
 
-type PostgresRepoRepository struct {
+type RepoRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewPostgresRepoRepository(db *pgxpool.Pool) *PostgresRepoRepository {
-	return &PostgresRepoRepository{db: db}
+func NewRepoRepository(db *pgxpool.Pool) *RepoRepository {
+	return &RepoRepository{db: db}
 }
 
-func (r *PostgresRepoRepository) GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error) {
-	repo := &model.Repository{
+func (r *RepoRepository) GetOrCreate(ctx context.Context, fullName string) (*domain.Repository, error) {
+	repo := &domain.Repository{
 		ID:        uuid.New().String(),
 		FullName:  fullName,
 		CreatedAt: time.Now().UTC(),
@@ -37,7 +38,7 @@ func (r *PostgresRepoRepository) GetOrCreate(ctx context.Context, fullName strin
 	return repo, nil
 }
 
-func (r *PostgresRepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error) {
+func (r *RepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*domain.Repository, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT r.id, r.full_name, r.last_seen_tag, r.created_at
 		 FROM repositories r
@@ -51,9 +52,9 @@ func (r *PostgresRepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Co
 	}
 	defer rows.Close()
 
-	var repos []*model.Repository
+	var repos []*domain.Repository
 	for rows.Next() {
-		var repo model.Repository
+		var repo domain.Repository
 		if err := rows.Scan(&repo.ID, &repo.FullName, &repo.LastSeenTag, &repo.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan repository: %w", err)
 		}
@@ -62,7 +63,7 @@ func (r *PostgresRepoRepository) GetAllWithConfirmedSubscriptions(ctx context.Co
 	return repos, rows.Err()
 }
 
-func (r *PostgresRepoRepository) UpdateLastSeenTag(ctx context.Context, id string, tag string) error {
+func (r *RepoRepository) UpdateLastSeenTag(ctx context.Context, id string, tag string) error {
 	_, err := r.db.Exec(ctx, `UPDATE repositories SET last_seen_tag = $1 WHERE id = $2`, tag, id)
 	if err != nil {
 		return fmt.Errorf("update last seen tag: %w", err)

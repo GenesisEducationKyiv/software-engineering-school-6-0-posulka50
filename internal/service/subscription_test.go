@@ -5,36 +5,37 @@ import (
 	"errors"
 	"testing"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
+	releasedomain "github.com/posul/github-notifier/internal/release/domain"
 	"github.com/posul/github-notifier/internal/repository"
 	"github.com/posul/github-notifier/internal/service"
 )
 
 type mockRepoRepo struct {
-	repos        map[string]*model.Repository // fullName -> repo (fullName used as ID in tests)
-	lastSeenTags map[string]string            // repo ID -> tag
+	repos        map[string]*releasedomain.Repository // fullName -> repo (fullName used as ID in tests)
+	lastSeenTags map[string]string                    // repo ID -> tag
 }
 
 func newMockRepoRepo() *mockRepoRepo {
 	return &mockRepoRepo{
-		repos:        make(map[string]*model.Repository),
+		repos:        make(map[string]*releasedomain.Repository),
 		lastSeenTags: make(map[string]string),
 	}
 }
 
-func (m *mockRepoRepo) GetOrCreate(_ context.Context, fullName string) (*model.Repository, error) {
+func (m *mockRepoRepo) GetOrCreate(_ context.Context, fullName string) (*releasedomain.Repository, error) {
 	if r, ok := m.repos[fullName]; ok {
 		return r, nil
 	}
-	r := &model.Repository{ID: fullName, FullName: fullName}
+	r := &releasedomain.Repository{ID: fullName, FullName: fullName}
 	m.repos[fullName] = r
 	return r, nil
 }
 
-func (m *mockRepoRepo) GetAllWithConfirmedSubscriptions(_ context.Context) ([]*model.Repository, error) {
-	var result []*model.Repository
+func (m *mockRepoRepo) GetAllWithConfirmedSubscriptions(_ context.Context) ([]*releasedomain.Repository, error) {
+	var result []*releasedomain.Repository
 	for _, r := range m.repos {
 		result = append(result, r)
 	}

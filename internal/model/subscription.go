@@ -6,13 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type Repository struct {
-	ID          string    `json:"id"`
-	FullName    string    `json:"full_name"`
-	LastSeenTag *string   `json:"last_seen_tag,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
 // NewSubscription creates a new pending Subscription with generated tokens and current timestamp.
 func NewSubscription(email, repoID, repoName string) *Subscription {
 	return &Subscription{

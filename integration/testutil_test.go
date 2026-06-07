@@ -21,6 +21,7 @@ import (
 
 	"github.com/posul/github-notifier/internal/handler"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
+	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	"github.com/posul/github-notifier/internal/repository"
 	"github.com/posul/github-notifier/internal/service"
 )
@@ -132,7 +133,7 @@ func newTestServer(tb testing.TB) *testServer {
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
-	repoRepo := repository.NewPostgresRepoRepository(sharedPool)
+	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
 	subRepo := repository.NewPostgresRepository(sharedPool)
 
 	subscriber := service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")

@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
+	"github.com/posul/github-notifier/internal/release/domain"
 )
 
 type releaseChecker interface {
@@ -19,7 +20,7 @@ type releaseChecker interface {
 }
 
 type scannerRepoStore interface {
-	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*model.Repository, error)
+	GetAllWithConfirmedSubscriptions(ctx context.Context) ([]*domain.Repository, error)
 	UpdateLastSeenTag(ctx context.Context, id string, tag string) error
 }
 
@@ -128,7 +129,7 @@ func (s *Scanner) scan(ctx context.Context) {
 	slog.Info("scanner: scan complete")
 }
 
-func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, release *githubclient.Release) {
+func (s *Scanner) processRepo(ctx context.Context, repo *domain.Repository, release *githubclient.Release) {
 	if repo.LastSeenTag == nil {
 		if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
 			slog.Error("scanner: failed to set initial last_seen_tag", "repo", repo.FullName, "error", err)

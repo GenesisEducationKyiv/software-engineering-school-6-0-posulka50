@@ -20,12 +20,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/handler"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
 	"github.com/posul/github-notifier/internal/platform/config"
 	"github.com/posul/github-notifier/internal/platform/middleware"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
+	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
+	releaseapp "github.com/posul/github-notifier/internal/release/app"
 	"github.com/posul/github-notifier/internal/repository"
 	"github.com/posul/github-notifier/internal/service"
 )
@@ -191,9 +193,9 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	*service.ConfirmUseCase,
 	*service.UnsubscribeUseCase,
 	*service.GetSubscriptionsUseCase,
-	*service.Scanner,
+	*releaseapp.Scanner,
 ) {
-	repoRepo := repository.NewPostgresRepoRepository(dbPool)
+	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := repository.NewPostgresRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
@@ -216,7 +218,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 		slog.Warn("invalid SCAN_INTERVAL, defaulting to 1h", "value", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := service.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
+	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
 
 	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
 }

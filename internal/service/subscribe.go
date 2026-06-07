@@ -8,17 +8,18 @@ import (
 	"regexp"
 	"strings"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
+	releasedomain "github.com/posul/github-notifier/internal/release/domain"
 	"github.com/posul/github-notifier/internal/repository"
 )
 
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+/[a-zA-Z0-9_.\-]+$`)
 
 type subscriptionRepoStore interface {
-	GetOrCreate(ctx context.Context, fullName string) (*model.Repository, error)
+	GetOrCreate(ctx context.Context, fullName string) (*releasedomain.Repository, error)
 }
 
 type subscribeSubStore interface {
