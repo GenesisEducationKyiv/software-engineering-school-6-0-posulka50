@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
+	"github.com/posul/github-notifier/internal/metrics"
 	"github.com/posul/github-notifier/internal/model"
 )
 
@@ -65,7 +66,7 @@ func (s *Scanner) RunOnce(ctx context.Context) {
 // Start runs the scanner in a loop, scanning immediately and then on each interval tick.
 // It blocks until ctx is canceled.
 func (s *Scanner) Start(ctx context.Context) {
-	log.Printf("scanner: started (interval=%s)", s.interval)
+	slog.Info("scanner: started", "interval", s.interval)
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -76,22 +77,24 @@ func (s *Scanner) Start(ctx context.Context) {
 		case <-ticker.C:
 			s.scan(ctx)
 		case <-ctx.Done():
-			log.Println("scanner: stopped")
+			slog.Info("scanner: stopped")
 			return
 		}
 	}
 }
 
 func (s *Scanner) scan(ctx context.Context) {
-	log.Println("scanner: running scan")
+	slog.Info("scanner: running scan")
+	start := time.Now()
 
 	repos, err := s.repos.GetAllWithConfirmedSubscriptions(ctx)
 	if err != nil {
-		log.Printf("scanner: failed to fetch repositories: %v", err)
+		slog.Error("scanner: failed to fetch repositories", "error", err)
+		metrics.ScannerRunsTotal.WithLabelValues("error").Inc()
 		return
 	}
 
-	log.Printf("scanner: %d repo(s) to check", len(repos))
+	slog.Info("scanner: repos to check", "count", len(repos))
 	for _, repo := range repos {
 		if ctx.Err() != nil {
 			return
@@ -106,41 +109,44 @@ func (s *Scanner) scan(ctx context.Context) {
 		release, err := s.github.GetLatestRelease(ctx, owner, repoName)
 		if err != nil {
 			if errors.Is(err, githubclient.ErrRateLimit) {
-				log.Println("scanner: GitHub rate limit hit, stopping scan early")
+				slog.Warn("scanner: GitHub rate limit hit, stopping scan early")
 				return
 			}
 			if errors.Is(err, githubclient.ErrNotFound) {
-				log.Printf("scanner: no releases for %s, skipping", repo.FullName)
+				slog.Debug("scanner: no releases for repo", "repo", repo.FullName)
 				continue
 			}
-			log.Printf("scanner: error fetching release for %s: %v", repo.FullName, err)
+			slog.Error("scanner: error fetching release", "repo", repo.FullName, "error", err)
 			continue
 		}
 
 		s.processRepo(ctx, repo, release)
 	}
 
-	log.Println("scanner: scan complete")
+	metrics.ScannerRunsTotal.WithLabelValues("success").Inc()
+	metrics.ScannerDuration.Observe(time.Since(start).Seconds())
+	slog.Info("scanner: scan complete")
 }
 
 func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, release *githubclient.Release) {
 	if repo.LastSeenTag == nil {
 		if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
-			log.Printf("scanner: failed to set initial last_seen_tag for %s: %v", repo.FullName, err)
+			slog.Error("scanner: failed to set initial last_seen_tag", "repo", repo.FullName, "error", err)
 		}
 		return
 	}
 
 	if *repo.LastSeenTag == release.TagName {
-		log.Printf("scanner: %s — no new release (last: %s)", repo.FullName, *repo.LastSeenTag)
+		slog.Debug("scanner: no new release", "repo", repo.FullName, "tag", *repo.LastSeenTag)
 		return
 	}
 
-	log.Printf("scanner: %s — new release %s -> %s", repo.FullName, *repo.LastSeenTag, release.TagName)
+	metrics.ReleasesDetectedTotal.Inc()
+	slog.Info("scanner: new release detected", "repo", repo.FullName, "from", *repo.LastSeenTag, "to", release.TagName)
 
 	subs, err := s.subs.GetConfirmedByRepoID(ctx, repo.ID)
 	if err != nil {
-		log.Printf("scanner: failed to fetch subscribers for %s: %v", repo.FullName, err)
+		slog.Error("scanner: failed to fetch subscribers", "repo", repo.FullName, "error", err)
 		return
 	}
 
@@ -155,14 +161,14 @@ func (s *Scanner) processRepo(ctx context.Context, repo *model.Repository, relea
 			UnsubscribeURL: unsubURL,
 		})
 		if err != nil {
-			log.Printf("scanner: failed to notify %s about %s@%s: %v",
-				sub.Email, repo.FullName, release.TagName, err)
+			slog.Error("scanner: failed to notify subscriber",
+				"email", sub.Email, "repo", repo.FullName, "tag", release.TagName, "error", err)
 		} else {
-			log.Printf("scanner: notified %s -> %s %s", sub.Email, repo.FullName, release.TagName)
+			slog.Info("scanner: subscriber notified", "email", sub.Email, "repo", repo.FullName, "tag", release.TagName)
 		}
 	}
 
 	if err := s.repos.UpdateLastSeenTag(ctx, repo.ID, release.TagName); err != nil {
-		log.Printf("scanner: failed to update last_seen_tag for %s: %v", repo.FullName, err)
+		slog.Error("scanner: failed to update last_seen_tag", "repo", repo.FullName, "error", err)
 	}
 }
