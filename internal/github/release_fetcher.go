@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -25,7 +25,7 @@ func NewReleaseFetcherClient(token string) *ReleaseFetcherClient {
 }
 
 func (c *ReleaseFetcherClient) GetLatestRelease(ctx context.Context, owner, repo string) (*Release, error) {
-	log.Printf("github: fetch latest release %s/%s", owner, repo)
+	slog.Debug("github: fetch latest release", "owner", owner, "repo", repo)
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
 	resp, err := doRequest(ctx, c.httpClient, c.token, url)
 	if err != nil {
@@ -33,7 +33,7 @@ func (c *ReleaseFetcherClient) GetLatestRelease(ctx context.Context, owner, repo
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Printf("github: failed to close response body: %v", err)
+			slog.Warn("github: failed to close response body", "error", err)
 		}
 	}()
 
@@ -56,6 +56,6 @@ func (c *ReleaseFetcherClient) GetLatestRelease(ctx context.Context, owner, repo
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
 
-	log.Printf("github: got release %s/%s -> %s", owner, repo, release.TagName)
+	slog.Debug("github: got release", "owner", owner, "repo", repo, "tag", release.TagName)
 	return &release, nil
 }

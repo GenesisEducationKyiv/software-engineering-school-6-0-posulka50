@@ -2,7 +2,7 @@ package handler
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +14,7 @@ import (
 func (h *Handler) Unsubscribe(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
-		log.Printf("unsubscribe: invalid token format: %s", token)
+		slog.Warn("unsubscribe: invalid token format", "token", token)
 		c.JSON(http.StatusBadRequest, errorResponse{msgInvalidToken})
 		return
 	}
@@ -23,15 +23,15 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
-			log.Printf("unsubscribe: token not found: %s", token)
+			slog.Warn("unsubscribe: token not found", "token", token)
 			c.JSON(http.StatusNotFound, errorResponse{msgTokenNotFound})
 		default:
-			log.Printf("unsubscribe: internal error: %v", err)
+			slog.Error("unsubscribe: internal error", "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}
 
-	log.Printf("unsubscribe: token %s removed", token)
+	slog.Info("unsubscribe: token removed", "token", token)
 	c.JSON(http.StatusOK, messageResponse{msgUnsubscribeSuccess})
 }

@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
+	"github.com/posul/github-notifier/internal/metrics"
 	"github.com/posul/github-notifier/internal/model"
 	"github.com/posul/github-notifier/internal/repository"
 )
@@ -95,7 +96,7 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 
 	sub := model.NewSubscription(emailAddr, repoRecord.ID, repoName)
 
-	log.Printf("service: creating subscription %s -> %s", emailAddr, repoName)
+	slog.Info("service: creating subscription", "email", emailAddr, "repo", repoName)
 	if err := uc.subs.Create(ctx, sub); err != nil {
 		if errors.Is(err, repository.ErrAlreadyExists) {
 			return ErrAlreadyExists
@@ -112,5 +113,6 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 		return fmt.Errorf("send confirmation email: %w", err)
 	}
 
+	metrics.SubscriptionsCreatedTotal.Inc()
 	return nil
 }

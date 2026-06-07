@@ -2,7 +2,7 @@ package handler
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -40,7 +40,7 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 		case errors.Is(err, service.ErrInvalidEmail):
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		default:
-			log.Printf("subscriptions: internal error for %s: %v", emailAddr, err)
+			slog.Error("subscriptions: internal error", "email", emailAddr, "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return

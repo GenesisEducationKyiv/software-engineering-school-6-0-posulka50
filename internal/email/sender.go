@@ -57,6 +57,8 @@ func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmDa
 	err = s.send(ctx, to, fmt.Sprintf("Confirm your subscription to %s releases", data.Repo), body)
 	if err == nil {
 		metrics.EmailsSentTotal.WithLabelValues("confirmation").Inc()
+	} else {
+		metrics.EmailSendErrorsTotal.WithLabelValues("confirmation").Inc()
 	}
 	return err
 }
@@ -69,6 +71,8 @@ func (s *Sender) SendReleaseNotification(ctx context.Context, to string, data Re
 	err = s.send(ctx, to, fmt.Sprintf("[%s] New release: %s", data.Repo, data.TagName), body)
 	if err == nil {
 		metrics.EmailsSentTotal.WithLabelValues("release").Inc()
+	} else {
+		metrics.EmailSendErrorsTotal.WithLabelValues("release").Inc()
 	}
 	return err
 }
