@@ -20,9 +20,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/handler"
+	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
+	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
 	"github.com/posul/github-notifier/internal/platform/config"
 	"github.com/posul/github-notifier/internal/platform/middleware"
 	"github.com/posul/github-notifier/internal/repository"
@@ -196,7 +197,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	subRepo := repository.NewPostgresRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, email.NewTemplateRenderer())
+	emailSender := resend.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, templates.NewRenderer())
 
 	var checker githubclient.RepoChecker = repoCheckerClient
 	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient

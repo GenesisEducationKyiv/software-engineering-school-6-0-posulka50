@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/posul/github-notifier/internal/email"
 	githubclient "github.com/posul/github-notifier/internal/github"
 	"github.com/posul/github-notifier/internal/model"
+	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/service"
 )
 
@@ -25,11 +25,11 @@ type mockNotifier struct {
 	releaseErr    error
 }
 
-func (m *mockNotifier) SendConfirmation(_ context.Context, _ string, _ email.ConfirmData) error {
+func (m *mockNotifier) SendConfirmation(_ context.Context, _ string, _ notifierdomain.ConfirmData) error {
 	return nil
 }
 
-func (m *mockNotifier) SendReleaseNotification(_ context.Context, to string, _ email.ReleaseData) error {
+func (m *mockNotifier) SendReleaseNotification(_ context.Context, to string, _ notifierdomain.ReleaseData) error {
 	if m.releaseErr != nil {
 		return m.releaseErr
 	}

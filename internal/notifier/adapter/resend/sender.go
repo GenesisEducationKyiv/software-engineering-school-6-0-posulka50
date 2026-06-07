@@ -1,4 +1,4 @@
-package email
+package resend
 
 import (
 	"bytes"
@@ -8,27 +8,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
-type ConfirmData struct {
-	Repo       string
-	ConfirmURL string
-}
-
-type ReleaseData struct {
-	Repo           string
-	TagName        string
-	ReleaseName    string
-	Body           string
-	ReleaseURL     string
-	UnsubscribeURL string
-}
-
-// renderer defines the interface for rendering email HTML bodies.
-type renderer interface {
-	RenderConfirmation(data ConfirmData) (string, error)
-	RenderRelease(data ReleaseData) (string, error)
+// Renderer renders email bodies for the Sender. It is satisfied by
+// notifier/adapter/templates.Renderer.
+type Renderer interface {
+	RenderConfirmation(data domain.ConfirmData) (string, error)
+	RenderRelease(data domain.ReleaseData) (string, error)
 }
 
 type Sender struct {
@@ -36,10 +24,10 @@ type Sender struct {
 	apiURL     string
 	apiKey     string
 	from       string
-	renderer   renderer
+	renderer   Renderer
 }
 
-func NewSender(apiKey, from, apiURL string, r renderer) *Sender {
+func NewSender(apiKey, from, apiURL string, r Renderer) *Sender {
 	return &Sender{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		apiURL:     apiURL,
@@ -49,7 +37,7 @@ func NewSender(apiKey, from, apiURL string, r renderer) *Sender {
 	}
 }
 
-func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmData) error {
+func (s *Sender) SendConfirmation(ctx context.Context, to string, data domain.ConfirmData) error {
 	body, err := s.renderer.RenderConfirmation(data)
 	if err != nil {
 		return err
@@ -63,7 +51,7 @@ func (s *Sender) SendConfirmation(ctx context.Context, to string, data ConfirmDa
 	return err
 }
 
-func (s *Sender) SendReleaseNotification(ctx context.Context, to string, data ReleaseData) error {
+func (s *Sender) SendReleaseNotification(ctx context.Context, to string, data domain.ReleaseData) error {
 	body, err := s.renderer.RenderRelease(data)
 	if err != nil {
 		return err

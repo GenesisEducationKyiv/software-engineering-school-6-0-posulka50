@@ -19,8 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/posul/github-notifier/internal/email"
 	"github.com/posul/github-notifier/internal/handler"
+	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/repository"
 	"github.com/posul/github-notifier/internal/service"
 )
@@ -101,7 +101,7 @@ type stubEmail struct {
 	err           error
 }
 
-func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ email.ConfirmData) error {
+func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ notifierdomain.ConfirmData) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -109,7 +109,7 @@ func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ email.Confi
 	return nil
 }
 
-func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ email.ReleaseData) error {
+func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ notifierdomain.ReleaseData) error {
 	return nil
 }
 

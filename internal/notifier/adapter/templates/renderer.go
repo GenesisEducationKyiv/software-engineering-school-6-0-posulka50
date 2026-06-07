@@ -1,9 +1,11 @@
-package email
+package templates
 
 import (
 	"bytes"
 	"fmt"
 	"html/template"
+
+	"github.com/posul/github-notifier/internal/notifier/domain"
 )
 
 var (
@@ -23,21 +25,21 @@ func mustLoadTemplate(base *template.Template, path string) *template.Template {
 	return template.Must(template.New("base").Parse(string(content)))
 }
 
-// TemplateRenderer renders email HTML bodies from embedded templates.
-type TemplateRenderer struct{}
+// Renderer renders email HTML bodies from embedded templates.
+type Renderer struct{}
 
-// NewTemplateRenderer creates a new TemplateRenderer.
-func NewTemplateRenderer() *TemplateRenderer {
-	return &TemplateRenderer{}
+// NewRenderer creates a new Renderer.
+func NewRenderer() *Renderer {
+	return &Renderer{}
 }
 
 // RenderConfirmation renders the confirmation email HTML body.
-func (r *TemplateRenderer) RenderConfirmation(data ConfirmData) (string, error) {
+func (r *Renderer) RenderConfirmation(data domain.ConfirmData) (string, error) {
 	return renderTemplate(confirmTmpl, data)
 }
 
 // RenderRelease renders the release notification email HTML body.
-func (r *TemplateRenderer) RenderRelease(data ReleaseData) (string, error) {
+func (r *Renderer) RenderRelease(data domain.ReleaseData) (string, error) {
 	return renderTemplate(releaseTmpl, data)
 }
 
