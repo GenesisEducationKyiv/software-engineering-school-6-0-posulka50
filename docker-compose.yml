@@ -16,11 +16,14 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       API_KEY: ${API_KEY:-}
       NOTIFIER_URL: http://notifier:8081
+      BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       GIN_MODE: release
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       notifier:
         condition: service_started

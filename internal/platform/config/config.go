@@ -13,6 +13,7 @@ type Config struct {
 	GitHubToken string
 
 	NotifierURL string
+	BrokerURL   string
 
 	BaseURL      string
 	ScanInterval string
@@ -27,6 +28,7 @@ func Load() *Config {
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
 		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
 		NotifierURL:  getEnv("NOTIFIER_URL", "http://localhost:8081"),
+		BrokerURL:    getEnv("BROKER_URL", "amqp://guest:guest@localhost:5672/"),
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
 		GinMode:      getEnv("GIN_MODE", "release"),
