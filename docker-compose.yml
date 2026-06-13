@@ -67,6 +67,19 @@ services:
       timeout: 3s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   elasticsearch:
     image: elasticsearch:8.13.4
     environment:
@@ -135,3 +148,4 @@ volumes:
   es_data:
   prometheus_data:
   grafana_data:
+  rabbitmq_data:
