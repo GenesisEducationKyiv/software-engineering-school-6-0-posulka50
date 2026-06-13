@@ -15,7 +15,6 @@ services:
       SCAN_INTERVAL: ${SCAN_INTERVAL:-1h}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       API_KEY: ${API_KEY:-}
-      NOTIFIER_URL: http://notifier:8081
       BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       GIN_MODE: release
     depends_on:
@@ -25,8 +24,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      notifier:
-        condition: service_started
     restart: unless-stopped
 
   notifier:
@@ -34,8 +31,6 @@ services:
       context: .
       args:
         TARGET: notifier
-    ports:
-      - "8081:8081"
     environment:
       PORT: "8081"
       RESEND_API_KEY: ${RESEND_API_KEY:-}

@@ -15,7 +15,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	notifierhttp "github.com/posul/github-notifier/internal/notifier/adapter/http"
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
@@ -46,19 +45,28 @@ func run() error {
 	emailFrom := os.Getenv("EMAIL_FROM")
 	ginMode := getEnv("GIN_MODE", "release")
 	brokerURL := os.Getenv("BROKER_URL")
+	if brokerURL == "" {
+		return errors.New("BROKER_URL is required: notifier consumes notifications from rabbitmq")
+	}
 
 	sender := resend.NewSender(resendKey, emailFrom, resendURL, templates.NewRenderer())
-	handler := notifierhttp.New(sender)
 
 	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
 	defer cancelConsumer()
 
-	consumer, consumerDone, err := startConsumer(consumerCtx, brokerURL, sender)
+	consumer, err := dialConsumerWithRetry(brokerURL, sender)
 	if err != nil {
-		return fmt.Errorf("start rabbitmq consumer: %w", err)
+		return fmt.Errorf("connect rabbitmq: %w", err)
 	}
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
+		if err := consumer.Run(consumerCtx); err != nil {
+			slog.Error("notifier: consumer exited with error", "error", err)
+		}
+	}()
 
-	router := newRouter(ginMode, handler)
+	router := newRouter(ginMode)
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -88,46 +96,17 @@ func run() error {
 		slog.Warn("notifier: server forced to shutdown", "error", err)
 	}
 
-	if consumer != nil {
-		select {
-		case <-consumerDone:
-		case <-shutdownCtx.Done():
-			slog.Warn("notifier: consumer did not stop in time")
-		}
-		if err := consumer.Close(); err != nil {
-			slog.Warn("notifier: consumer close error", "error", err)
-		}
+	select {
+	case <-consumerDone:
+	case <-shutdownCtx.Done():
+		slog.Warn("notifier: consumer did not stop in time")
+	}
+	if err := consumer.Close(); err != nil {
+		slog.Warn("notifier: consumer close error", "error", err)
 	}
 
 	slog.Info("notifier: stopped")
 	return nil
-}
-
-// startConsumer dials RabbitMQ (with retry, since it may still be coming up)
-// and runs a Consumer in a goroutine. When brokerURL is empty the broker path
-// is skipped and only the HTTP transport remains active.
-func startConsumer(ctx context.Context, brokerURL string, sender rabbitmq.Sender) (*rabbitmq.Consumer, <-chan struct{}, error) {
-	done := make(chan struct{})
-	if brokerURL == "" {
-		slog.Info("notifier: BROKER_URL not set, skipping rabbitmq consumer")
-		close(done)
-		return nil, done, nil
-	}
-
-	consumer, err := dialConsumerWithRetry(brokerURL, sender)
-	if err != nil {
-		close(done)
-		return nil, done, err
-	}
-
-	go func() {
-		defer close(done)
-		if err := consumer.Run(ctx); err != nil {
-			slog.Error("notifier: consumer exited with error", "error", err)
-		}
-	}()
-
-	return consumer, done, nil
 }
 
 func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.Consumer, error) {
@@ -145,19 +124,15 @@ func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.
 	return nil, fmt.Errorf("after %d attempts: %w", brokerDialAttempts, lastErr)
 }
 
-func newRouter(ginMode string, h *notifierhttp.Handler) *gin.Engine {
+// newRouter wires only operational endpoints: /health for compose probes and
+// /metrics for Prometheus. Notification delivery is broker-only.
+func newRouter(ginMode string) *gin.Engine {
 	gin.SetMode(ginMode)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger())
 	r.Use(middleware.Prometheus())
-
-	v1 := r.Group("/v1/notifications")
-	{
-		v1.POST("/confirmation", h.Confirmation)
-		v1.POST("/release", h.Release)
-	}
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

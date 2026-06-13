@@ -12,7 +12,7 @@ import (
 
 // Publisher writes notification messages to the notifications exchange. It
 // satisfies the subscription confirmationSender and release releaseSender
-// ports via structural typing, replacing httpclient.Client on the server side.
+// ports via structural typing.
 type Publisher struct {
 	conn *amqp.Connection
 	ch   *amqp.Channel

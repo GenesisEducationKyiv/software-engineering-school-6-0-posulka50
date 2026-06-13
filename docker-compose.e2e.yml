@@ -47,8 +47,6 @@ services:
       context: .
       args:
         TARGET: notifier
-    ports:
-      - "8081:8081"
     environment:
       PORT: "8081"
       RESEND_API_KEY: fake-key
@@ -78,7 +76,6 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/github_notifier?sslmode=disable
       REDIS_URL: redis://redis:6379
       BASE_URL: http://localhost:8080
-      NOTIFIER_URL: http://notifier:8081
       BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       SCAN_INTERVAL: 24h
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}

@@ -1,8 +1,7 @@
 package rabbitmq
 
 // ConfirmationMessage is the JSON payload published under routing key
-// notification.confirmation. Fields mirror the legacy HTTP request schema in
-// internal/notifier/adapter/http so consumers stay agnostic to transport.
+// notification.confirmation.
 type ConfirmationMessage struct {
 	To         string `json:"to"`
 	Repo       string `json:"repo"`
