@@ -29,19 +29,20 @@ func toResponse(s *domain.Subscription) subscriptionResponse {
 
 // GetSubscriptions handles GET /api/subscriptions and returns confirmed subscriptions for an email.
 func (h *Handler) GetSubscriptions(c *gin.Context) {
+	ctx := c.Request.Context()
 	emailAddr := c.Query("email")
 	if emailAddr == "" {
 		c.JSON(http.StatusBadRequest, errorResponse{msgEmailRequired})
 		return
 	}
 
-	subs, err := h.subscriptionLister.GetSubscriptions(c.Request.Context(), emailAddr)
+	subs, err := h.subscriptionLister.GetSubscriptions(ctx, emailAddr)
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrInvalidEmail):
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		default:
-			slog.Error("subscriptions: internal error", "email", emailAddr, "error", err)
+			slog.ErrorContext(ctx, "subscriptions: internal error", "email", emailAddr, "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return

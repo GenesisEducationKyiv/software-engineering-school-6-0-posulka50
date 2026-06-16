@@ -12,6 +12,7 @@ import (
 
 // Subscribe handles POST /api/subscribe and creates a new pending subscription.
 func (h *Handler) Subscribe(c *gin.Context) {
+	ctx := c.Request.Context()
 	var req struct {
 		Email string `json:"email"`
 		Repo  string `json:"repo"`
@@ -29,31 +30,31 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	slog.Info("subscribe", "email", email, "repo", repo)
+	slog.InfoContext(ctx, "subscribe", "email", email, "repo", repo)
 
-	err := h.subscriber.Subscribe(c.Request.Context(), email, repo)
+	err := h.subscriber.Subscribe(ctx, email, repo)
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrInvalidEmail),
 			errors.Is(err, app.ErrInvalidRepo):
-			slog.Warn("subscribe: validation error", "error", err)
+			slog.WarnContext(ctx, "subscribe: validation error", "error", err)
 			c.JSON(http.StatusBadRequest, errorResponse{err.Error()})
 		case errors.Is(err, app.ErrRepoNotFound):
-			slog.Warn("subscribe: repo not found", "repo", repo)
+			slog.WarnContext(ctx, "subscribe: repo not found", "repo", repo)
 			c.JSON(http.StatusNotFound, errorResponse{err.Error()})
 		case errors.Is(err, app.ErrAlreadyExists):
-			slog.Warn("subscribe: already exists", "email", email, "repo", repo)
+			slog.WarnContext(ctx, "subscribe: already exists", "email", email, "repo", repo)
 			c.JSON(http.StatusConflict, errorResponse{err.Error()})
 		case errors.Is(err, app.ErrRateLimit):
-			slog.Warn("subscribe: github rate limit hit")
+			slog.WarnContext(ctx, "subscribe: github rate limit hit")
 			c.JSON(http.StatusTooManyRequests, errorResponse{err.Error()})
 		default:
-			slog.Error("subscribe: internal error", "error", err)
+			slog.ErrorContext(ctx, "subscribe: internal error", "error", err)
 			c.JSON(http.StatusInternalServerError, errorResponse{msgInternalError})
 		}
 		return
 	}
 
-	slog.Info("subscribe: confirmation email sent", "email", email, "repo", repo)
+	slog.InfoContext(ctx, "subscribe: confirmation email sent", "email", email, "repo", repo)
 	c.JSON(http.StatusOK, messageResponse{msgSubscribeSuccess})
 }
