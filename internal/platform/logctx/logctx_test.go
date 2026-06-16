@@ -43,7 +43,8 @@ func TestHandlerOmitsWhenAbsent(t *testing.T) {
 }
 
 func TestRequestIDNilContext(t *testing.T) {
-	if got := RequestID(nil); got != "" {
+	var ctx context.Context
+	if got := RequestID(ctx); got != "" {
 		t.Errorf("RequestID(nil) = %q, want empty", got)
 	}
 }
