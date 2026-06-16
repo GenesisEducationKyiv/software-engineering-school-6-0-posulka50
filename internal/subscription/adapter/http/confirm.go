@@ -15,7 +15,7 @@ import (
 func (h *Handler) Confirm(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
-		slog.Warn("confirm: invalid token format", "token", token)
+		slog.Warn("confirm: invalid token format")
 		c.JSON(http.StatusBadRequest, errorResponse{msgInvalidToken})
 		return
 	}
@@ -24,7 +24,7 @@ func (h *Handler) Confirm(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrNotFound):
-			slog.Warn("confirm: token not found", "token", token)
+			slog.Warn("confirm: token not found")
 			c.JSON(http.StatusNotFound, errorResponse{msgTokenNotFound})
 		default:
 			slog.Error("confirm: internal error", "error", err)
@@ -33,6 +33,6 @@ func (h *Handler) Confirm(c *gin.Context) {
 		return
 	}
 
-	slog.Info("confirm: subscription confirmed", "token", token)
+	slog.Info("confirm: subscription confirmed")
 	c.JSON(http.StatusOK, messageResponse{msgConfirmSuccess})
 }

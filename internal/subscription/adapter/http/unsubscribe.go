@@ -15,7 +15,7 @@ import (
 func (h *Handler) Unsubscribe(c *gin.Context) {
 	token := c.Param("token")
 	if _, err := uuid.Parse(token); err != nil {
-		slog.Warn("unsubscribe: invalid token format", "token", token)
+		slog.Warn("unsubscribe: invalid token format")
 		c.JSON(http.StatusBadRequest, errorResponse{msgInvalidToken})
 		return
 	}
@@ -24,7 +24,7 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrNotFound):
-			slog.Warn("unsubscribe: token not found", "token", token)
+			slog.Warn("unsubscribe: token not found")
 			c.JSON(http.StatusNotFound, errorResponse{msgTokenNotFound})
 		default:
 			slog.Error("unsubscribe: internal error", "error", err)
@@ -33,6 +33,6 @@ func (h *Handler) Unsubscribe(c *gin.Context) {
 		return
 	}
 
-	slog.Info("unsubscribe: token removed", "token", token)
+	slog.Info("unsubscribe: token removed")
 	c.JSON(http.StatusOK, messageResponse{msgUnsubscribeSuccess})
 }
