@@ -149,7 +149,7 @@ func newTestServer(tb testing.TB) *testServer {
 	notifierSrv := httptest.NewServer(notifierGin)
 	tb.Cleanup(notifierSrv.Close)
 
-	emailClient := httpclient.NewClient(notifierSrv.URL)
+	emailClient := httpclient.NewClient(notifierSrv.URL, "")
 
 	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
