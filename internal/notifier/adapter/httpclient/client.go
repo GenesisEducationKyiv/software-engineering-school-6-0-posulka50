@@ -28,11 +28,11 @@ func NewClient(baseURL, authToken string) *Client {
 	}
 }
 
-func (c *Client) SendConfirmation(ctx context.Context, to string, data domain.ConfirmData) error {
+func (c *Client) SendConfirmation(ctx context.Context, to, repo, confirmURL string) error {
 	return c.post(ctx, "/v1/notifications/confirmation", map[string]string{
 		"to":          to,
-		"repo":        data.Repo,
-		"confirm_url": data.ConfirmURL,
+		"repo":        repo,
+		"confirm_url": confirmURL,
 	})
 }
 
