@@ -23,3 +23,22 @@ func APIKeyAuth(apiKey string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// InternalAuth returns a Gin middleware enforcing an internal shared-secret
+// token via the X-Internal-Token header. If token is empty the middleware is
+// a no-op so local dev without the env var still works.
+func InternalAuth(token string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if token == "" {
+			c.Next()
+			return
+		}
+		if c.GetHeader("X-Internal-Token") != token {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "missing or invalid internal token",
+			})
+			return
+		}
+		c.Next()
+	}
+}
