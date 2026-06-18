@@ -16,12 +16,14 @@ import (
 // port via structural typing.
 type Client struct {
 	baseURL    string
+	authToken  string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL, authToken string) *Client {
 	return &Client{
 		baseURL:    baseURL,
+		authToken:  authToken,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -56,6 +58,9 @@ func (c *Client) post(ctx context.Context, path string, body any) error {
 		return fmt.Errorf("create notifier request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		req.Header.Set("X-Internal-Token", c.authToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
