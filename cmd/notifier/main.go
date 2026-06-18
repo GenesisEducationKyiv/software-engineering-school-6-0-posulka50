@@ -38,11 +38,12 @@ func run() error {
 	resendURL := getEnv("RESEND_API_URL", "https://api.resend.com/emails")
 	emailFrom := os.Getenv("EMAIL_FROM")
 	ginMode := getEnv("GIN_MODE", "release")
+	internalToken := os.Getenv("NOTIFIER_INTERNAL_TOKEN")
 
 	sender := resend.NewSender(resendKey, emailFrom, resendURL, templates.NewRenderer())
 	handler := notifierhttp.New(sender)
 
-	router := newRouter(ginMode, handler)
+	router := newRouter(ginMode, handler, internalToken)
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -73,7 +74,7 @@ func run() error {
 	return nil
 }
 
-func newRouter(ginMode string, h *notifierhttp.Handler) *gin.Engine {
+func newRouter(ginMode string, h *notifierhttp.Handler, internalToken string) *gin.Engine {
 	gin.SetMode(ginMode)
 
 	r := gin.New()
@@ -81,7 +82,7 @@ func newRouter(ginMode string, h *notifierhttp.Handler) *gin.Engine {
 	r.Use(middleware.Logger())
 	r.Use(middleware.Prometheus())
 
-	v1 := r.Group("/v1/notifications")
+	v1 := r.Group("/v1/notifications", middleware.InternalAuth(internalToken))
 	{
 		v1.POST("/confirmation", h.Confirmation)
 		v1.POST("/release", h.Release)
