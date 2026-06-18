@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/posul/github-notifier/internal/notifier/domain"
 )
 
 // Client calls the notifier service over HTTP. It satisfies both the
@@ -36,15 +34,15 @@ func (c *Client) SendConfirmation(ctx context.Context, to, repo, confirmURL stri
 	})
 }
 
-func (c *Client) SendReleaseNotification(ctx context.Context, to string, data domain.ReleaseData) error {
+func (c *Client) SendReleaseNotification(ctx context.Context, to, repo, tagName, releaseName, body, releaseURL, unsubscribeURL string) error {
 	return c.post(ctx, "/v1/notifications/release", map[string]string{
 		"to":              to,
-		"repo":            data.Repo,
-		"tag_name":        data.TagName,
-		"release_name":    data.ReleaseName,
-		"body":            data.Body,
-		"release_url":     data.ReleaseURL,
-		"unsubscribe_url": data.UnsubscribeURL,
+		"repo":            repo,
+		"tag_name":        tagName,
+		"release_name":    releaseName,
+		"body":            body,
+		"release_url":     releaseURL,
+		"unsubscribe_url": unsubscribeURL,
 	})
 }
 
