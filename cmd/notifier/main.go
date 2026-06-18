@@ -18,6 +18,7 @@ import (
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
+	"github.com/posul/github-notifier/internal/platform/logctx"
 	"github.com/posul/github-notifier/internal/platform/middleware"
 )
 
@@ -27,7 +28,7 @@ const (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(logctx.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	if err := run(); err != nil {
 		slog.Error("notifier: startup failed", "error", err)
 		os.Exit(1)
@@ -131,6 +132,7 @@ func newRouter(ginMode string) *gin.Engine {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger())
 	r.Use(middleware.Prometheus())
 

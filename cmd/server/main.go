@@ -22,6 +22,7 @@ import (
 
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/platform/config"
+	"github.com/posul/github-notifier/internal/platform/logctx"
 	"github.com/posul/github-notifier/internal/platform/middleware"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
@@ -32,7 +33,7 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(logctx.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	if err := run(); err != nil {
 		slog.Error("startup failed", "error", err)
 		os.Exit(1)
@@ -160,6 +161,7 @@ func newRouter(cfg *config.Config, h *subscriptionhttp.Handler) *gin.Engine {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 	router.Use(middleware.Logger())
 	router.Use(middleware.Prometheus())
 

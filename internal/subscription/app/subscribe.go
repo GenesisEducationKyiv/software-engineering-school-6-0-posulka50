@@ -96,7 +96,7 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 
 	sub := domain.NewSubscription(emailAddr, repoRecord.ID, repoName)
 
-	slog.Info("subscription: creating subscription", "email", emailAddr, "repo", repoName)
+	slog.InfoContext(ctx, "subscription: creating subscription", "email", emailAddr, "repo", repoName)
 	if err := uc.subs.Create(ctx, sub); err != nil {
 		if errors.Is(err, domain.ErrAlreadyExists) {
 			return ErrAlreadyExists
