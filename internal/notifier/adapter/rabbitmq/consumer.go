@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -21,17 +22,29 @@ type Sender interface {
 	SendReleaseNotification(ctx context.Context, to string, data domain.ReleaseData) error
 }
 
-// Consumer subscribes to the deliveries queue and dispatches messages to the
-// underlying Sender. Permanent errors nack(requeue=false); a future commit
-// can route those into a dead-letter queue.
+// ReplyPublisher is the port used by the consumer to send Subscribe-saga
+// reply events back to the orchestrator. Satisfied by *Publisher.
+type ReplyPublisher interface {
+	PublishConfirmationSent(ctx context.Context, sagaID string) error
+	PublishConfirmationFailed(ctx context.Context, sagaID, reason string) error
+}
+
+// Consumer subscribes to the notifier's queues and dispatches messages to the
+// underlying Sender. Saga commands additionally trigger reply events via
+// ReplyPublisher. Permanent errors on legacy routes nack(requeue=false) into
+// the dead-letter exchange; saga commands ack after the reply is published
+// (success or failure), so the saga orchestrator owns the retry/timeout
+// decision instead of the broker.
 //
-// Run drives a supervisor loop: when the connection or delivery channel
+// Run drives a supervisor loop: when the connection or any delivery channel
 // closes unexpectedly, the consumer re-dials with exponential backoff and
-// resumes consuming. Graceful shutdown is triggered by canceling ctx.
+// resumes consuming from every business queue. Graceful shutdown is
+// triggered by canceling ctx.
 type Consumer struct {
-	url    string
-	sender Sender
-	tag    string
+	url          string
+	sender       Sender
+	replies      ReplyPublisher
+	consumerName string
 
 	conn *amqp.Connection
 	ch   *amqp.Channel
@@ -47,8 +60,13 @@ const (
 
 var errSessionEnded = errors.New("rabbitmq consumer session ended")
 
-func NewConsumer(amqpURL string, sender Sender) (*Consumer, error) {
-	c := &Consumer{url: amqpURL, sender: sender, tag: "notifier"}
+func NewConsumer(amqpURL string, sender Sender, replies ReplyPublisher) (*Consumer, error) {
+	c := &Consumer{
+		url:          amqpURL,
+		sender:       sender,
+		replies:      replies,
+		consumerName: "notifier",
+	}
 	if err := c.dial(); err != nil {
 		return nil, err
 	}
@@ -96,8 +114,9 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
-// Run consumes messages until ctx is canceled. On connection loss it
-// re-dials with exponential backoff instead of giving up.
+// Run consumes from the legacy deliveries queue and the saga commands queue
+// until ctx is canceled. On connection loss it re-dials with exponential
+// backoff instead of giving up.
 func (c *Consumer) Run(ctx context.Context) error {
 	backoff := initialReconnectBackoff
 	for {
@@ -138,41 +157,81 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 func (c *Consumer) runSession(ctx context.Context) error {
 	closeCh := c.conn.NotifyClose(make(chan *amqp.Error, 1))
-	deliveries, err := c.ch.Consume(
-		QueueDeliveries,
-		c.tag,
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("start consume: %w", err)
+
+	queues := []struct {
+		queue, tag string
+	}{
+		{QueueDeliveries, c.consumerName + ".deliveries"},
+		{QueueSagaCommands, c.consumerName + ".commands"},
 	}
 
-	slog.Info("rabbitmq: consumer started", "queue", QueueDeliveries, "prefetch", consumerPrefetch)
-
-	for {
-		select {
-		case <-ctx.Done():
-			if err := c.ch.Cancel(c.tag, false); err != nil {
-				slog.Warn("rabbitmq: cancel consumer", "error", err)
-			}
-			slog.Info("rabbitmq: consumer stopped")
-			return nil
-		case amqErr := <-closeCh:
-			if amqErr == nil {
-				return errSessionEnded
-			}
-			return fmt.Errorf("%w: %w", errSessionEnded, amqErr)
-		case d, ok := <-deliveries:
-			if !ok {
-				return fmt.Errorf("%w: deliveries channel closed", errSessionEnded)
-			}
-			c.handle(ctx, d)
+	// Start Consume on every business queue up front so we can detect a
+	// setup failure before spawning any worker goroutine.
+	deliveryChans := make([]<-chan amqp.Delivery, 0, len(queues))
+	for _, q := range queues {
+		deliveries, err := c.ch.Consume(q.queue, q.tag, false, false, false, false, nil)
+		if err != nil {
+			return fmt.Errorf("start consume %q: %w", q.queue, err)
 		}
+		slog.Info("rabbitmq: consumer started", "queue", q.queue, "prefetch", consumerPrefetch)
+		deliveryChans = append(deliveryChans, deliveries)
 	}
+
+	sessionCtx, cancelSession := context.WithCancel(ctx)
+	defer cancelSession()
+
+	// A delivery channel closing without ctx cancellation signals a
+	// session-level failure that must trigger reconnect.
+	closedCh := make(chan string, len(queues))
+
+	var wg sync.WaitGroup
+	for i, q := range queues {
+		wg.Add(1)
+		go func(queue string, deliveries <-chan amqp.Delivery) {
+			defer wg.Done()
+			for {
+				select {
+				case <-sessionCtx.Done():
+					return
+				case d, ok := <-deliveries:
+					if !ok {
+						select {
+						case closedCh <- queue:
+						default:
+						}
+						return
+					}
+					c.handle(ctx, d)
+				}
+			}
+		}(q.queue, deliveryChans[i])
+	}
+
+	var sessErr error
+	select {
+	case <-ctx.Done():
+		for _, q := range queues {
+			if err := c.ch.Cancel(q.tag, false); err != nil {
+				slog.Warn("rabbitmq: cancel consumer", "queue", q.queue, "error", err)
+			}
+		}
+	case amqErr := <-closeCh:
+		if amqErr == nil {
+			sessErr = errSessionEnded
+		} else {
+			sessErr = fmt.Errorf("%w: %w", errSessionEnded, amqErr)
+		}
+	case queue := <-closedCh:
+		sessErr = fmt.Errorf("%w: deliveries channel closed for %q", errSessionEnded, queue)
+	}
+	cancelSession()
+	wg.Wait()
+
+	if ctx.Err() != nil {
+		slog.Info("rabbitmq: consumer stopped")
+		return nil
+	}
+	return sessErr
 }
 
 func (c *Consumer) handle(ctx context.Context, d amqp.Delivery) {
@@ -202,6 +261,37 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		}
 		_ = d.Ack(false)
 		slog.Info("rabbitmq: confirmation delivered", "to", msg.To, "repo", msg.Repo)
+		return resultAck
+
+	case RoutingKeyCmdSendConfirmation:
+		var msg SendConfirmationCommand
+		if err := json.Unmarshal(d.Body, &msg); err != nil {
+			slog.Error("rabbitmq: unmarshal send_confirmation command", "error", err)
+			_ = d.Nack(false, false)
+			return resultNack
+		}
+		sendErr := c.sender.SendConfirmation(ctx, msg.To, domain.ConfirmData{
+			Repo:       msg.Repo,
+			ConfirmURL: msg.ConfirmURL,
+		})
+		// Publish a reply event reflecting the outcome, then ack. The saga
+		// orchestrator owns retry/timeout; redelivering the command would
+		// produce duplicate emails since there is no idempotency key on the
+		// Resend side.
+		var replyErr error
+		if sendErr == nil {
+			replyErr = c.replies.PublishConfirmationSent(ctx, msg.SagaID)
+			slog.Info("rabbitmq: confirmation sent", "saga_id", msg.SagaID, "to", msg.To, "repo", msg.Repo)
+		} else {
+			slog.Error("rabbitmq: send confirmation failed", "saga_id", msg.SagaID, "to", msg.To, "repo", msg.Repo, "error", sendErr)
+			replyErr = c.replies.PublishConfirmationFailed(ctx, msg.SagaID, sendErr.Error())
+		}
+		if replyErr != nil {
+			// Reply lost in transit — saga will be compensated by the timeout
+			// sweeper. Still ack to avoid Resend duplication on redelivery.
+			slog.Error("rabbitmq: publish saga reply failed", "saga_id", msg.SagaID, "error", replyErr)
+		}
+		_ = d.Ack(false)
 		return resultAck
 
 	case RoutingKeyRelease:

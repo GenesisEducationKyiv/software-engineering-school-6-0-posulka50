@@ -55,7 +55,19 @@ func run() error {
 	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
 	defer cancelConsumer()
 
-	consumer, err := dialConsumerWithRetry(brokerURL, sender)
+	// The notifier needs its own publisher to emit Subscribe-saga reply events
+	// (confirmation_sent / confirmation_failed) back to the orchestrator.
+	replies, err := dialPublisherWithRetry(brokerURL)
+	if err != nil {
+		return fmt.Errorf("connect rabbitmq publisher: %w", err)
+	}
+	defer func() {
+		if err := replies.Close(); err != nil {
+			slog.Warn("notifier: replies publisher close error", "error", err)
+		}
+	}()
+
+	consumer, err := dialConsumerWithRetry(brokerURL, sender, replies)
 	if err != nil {
 		return fmt.Errorf("connect rabbitmq: %w", err)
 	}
@@ -128,16 +140,31 @@ func run() error {
 	return runErr
 }
 
-func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.Consumer, error) {
+func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender, replies rabbitmq.ReplyPublisher) (*rabbitmq.Consumer, error) {
 	var lastErr error
 	for attempt := 1; attempt <= brokerDialAttempts; attempt++ {
-		c, err := rabbitmq.NewConsumer(brokerURL, sender)
+		c, err := rabbitmq.NewConsumer(brokerURL, sender, replies)
 		if err == nil {
 			slog.Info("notifier: connected to rabbitmq", "attempt", attempt)
 			return c, nil
 		}
 		lastErr = err
 		slog.Warn("notifier: rabbitmq dial failed, retrying", "attempt", attempt, "error", err)
+		time.Sleep(brokerDialDelay)
+	}
+	return nil, fmt.Errorf("after %d attempts: %w", brokerDialAttempts, lastErr)
+}
+
+func dialPublisherWithRetry(brokerURL string) (*rabbitmq.Publisher, error) {
+	var lastErr error
+	for attempt := 1; attempt <= brokerDialAttempts; attempt++ {
+		p, err := rabbitmq.NewPublisher(brokerURL)
+		if err == nil {
+			slog.Info("notifier: rabbitmq publisher connected", "attempt", attempt)
+			return p, nil
+		}
+		lastErr = err
+		slog.Warn("notifier: rabbitmq publisher dial failed, retrying", "attempt", attempt, "error", err)
 		time.Sleep(brokerDialDelay)
 	}
 	return nil, fmt.Errorf("after %d attempts: %w", brokerDialAttempts, lastErr)
