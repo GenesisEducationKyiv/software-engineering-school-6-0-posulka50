@@ -191,7 +191,20 @@ func newTestServer(tb testing.TB) *testServer {
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
-	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em)
+	publisher, err := rabbitmq.NewPublisher(sharedAMQP)
+	if err != nil {
+		tb.Fatalf("create publisher: %v", err)
+	}
+	tb.Cleanup(func() {
+		if err := publisher.Close(); err != nil {
+			tb.Logf("publisher close: %v", err)
+		}
+	})
+
+	// Reuse the same publisher for saga reply events: legacy tests never
+	// trigger a SendConfirmationCommand, but Consumer requires a non-nil
+	// ReplyPublisher to dispatch the saga case.
+	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher)
 	if err != nil {
 		tb.Fatalf("create consumer: %v", err)
 	}
@@ -208,16 +221,6 @@ func newTestServer(tb testing.TB) *testServer {
 		<-consumerDone
 		if err := consumer.Close(); err != nil {
 			tb.Logf("consumer close: %v", err)
-		}
-	})
-
-	publisher, err := rabbitmq.NewPublisher(sharedAMQP)
-	if err != nil {
-		tb.Fatalf("create publisher: %v", err)
-	}
-	tb.Cleanup(func() {
-		if err := publisher.Close(); err != nil {
-			tb.Logf("publisher close: %v", err)
 		}
 	})
 

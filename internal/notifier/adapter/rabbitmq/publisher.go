@@ -65,6 +65,28 @@ func (p *Publisher) SendReleaseNotification(ctx context.Context, to string, data
 	})
 }
 
+// SendConfirmationCommand is the app-side orchestrator entry point: it
+// publishes a Subscribe-saga command to be picked up by the notifier.
+func (p *Publisher) SendConfirmationCommand(ctx context.Context, cmd SendConfirmationCommand) error {
+	return p.publish(ctx, RoutingKeyCmdSendConfirmation, cmd)
+}
+
+// PublishConfirmationSent is the notifier-side reply for a successful Resend
+// call, routed back to the saga orchestrator.
+func (p *Publisher) PublishConfirmationSent(ctx context.Context, sagaID string) error {
+	return p.publish(ctx, RoutingKeyEventConfirmationSent, ConfirmationSentEvent{SagaID: sagaID})
+}
+
+// PublishConfirmationFailed is the notifier-side reply when Resend (or
+// rendering) failed permanently. The orchestrator uses Reason for saga
+// last_error and logs.
+func (p *Publisher) PublishConfirmationFailed(ctx context.Context, sagaID, reason string) error {
+	return p.publish(ctx, RoutingKeyEventConfirmationFailed, ConfirmationFailedEvent{
+		SagaID: sagaID,
+		Reason: reason,
+	})
+}
+
 func (p *Publisher) publish(ctx context.Context, routingKey string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
