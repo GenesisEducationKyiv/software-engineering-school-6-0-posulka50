@@ -67,8 +67,13 @@ func (p *Publisher) SendReleaseNotification(ctx context.Context, to string, data
 
 // SendConfirmationCommand is the app-side orchestrator entry point: it
 // publishes a Subscribe-saga command to be picked up by the notifier.
-func (p *Publisher) SendConfirmationCommand(ctx context.Context, cmd SendConfirmationCommand) error {
-	return p.publish(ctx, RoutingKeyCmdSendConfirmation, cmd)
+func (p *Publisher) SendConfirmationCommand(ctx context.Context, sagaID, to, repo, confirmURL string) error {
+	return p.publish(ctx, RoutingKeyCmdSendConfirmation, SendConfirmationCommand{
+		SagaID:     sagaID,
+		To:         to,
+		Repo:       repo,
+		ConfirmURL: confirmURL,
+	})
 }
 
 // PublishConfirmationSent is the notifier-side reply for a successful Resend

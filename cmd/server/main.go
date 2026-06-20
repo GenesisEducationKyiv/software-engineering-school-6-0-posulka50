@@ -30,6 +30,7 @@ import (
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/saga"
 )
 
 func main() {
@@ -70,13 +71,33 @@ func run() error {
 		}
 	}()
 
-	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, publisher, cfg)
+	// orchestrator is wired now but SubscribeUseCase still uses the legacy
+	// publisher; a later commit will swap the use case to drive the saga.
+	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner, orchestrator := setupServices(dbPool, redisClient, publisher, cfg)
+
+	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, orchestrator)
+	if err != nil {
+		return fmt.Errorf("connect saga replies consumer: %w", err)
+	}
+	defer func() {
+		if err := repliesConsumer.Close(); err != nil {
+			slog.Warn("saga replies consumer close error", "error", err)
+		}
+	}()
 
 	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go scanner.Start(ctx)
+
+	repliesDone := make(chan struct{})
+	go func() {
+		defer close(repliesDone)
+		if err := repliesConsumer.Run(ctx); err != nil {
+			slog.Error("saga replies consumer exited with error", "error", err)
+		}
+	}()
 
 	srv := newServer(cfg.Port, router)
 
@@ -100,6 +121,13 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("server forced to shutdown", "error", err)
 	}
+
+	select {
+	case <-repliesDone:
+	case <-shutdownCtx.Done():
+		slog.Warn("saga replies consumer did not stop in time")
+	}
+
 	slog.Info("server stopped")
 	return nil
 }
@@ -205,9 +233,11 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 	*subscriptionapp.UnsubscribeUseCase,
 	*subscriptionapp.GetSubscriptionsUseCase,
 	*releaseapp.Scanner,
+	*saga.Orchestrator,
 ) {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
+	sagaRepo := subscriptionpostgres.NewSagaRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
 
@@ -230,7 +260,9 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 	}
 	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, publisher, cfg.BaseURL, scanInterval)
 
-	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
+	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+
+	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner, orchestrator
 }
 
 const (
