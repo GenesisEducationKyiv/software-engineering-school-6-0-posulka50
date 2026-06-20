@@ -45,14 +45,6 @@ func (p *Publisher) Close() error {
 	return connErr
 }
 
-func (p *Publisher) SendConfirmation(ctx context.Context, to string, data domain.ConfirmData) error {
-	return p.publish(ctx, RoutingKeyConfirmation, ConfirmationMessage{
-		To:         to,
-		Repo:       data.Repo,
-		ConfirmURL: data.ConfirmURL,
-	})
-}
-
 func (p *Publisher) SendReleaseNotification(ctx context.Context, to string, data domain.ReleaseData) error {
 	return p.publish(ctx, RoutingKeyRelease, ReleaseMessage{
 		To:             to,

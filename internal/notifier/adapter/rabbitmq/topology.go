@@ -11,11 +11,11 @@ import (
 const (
 	ExchangeNotifications = "notifications"
 
-	// Fire-and-forget delivery queue (legacy confirmation + release paths).
-	QueueDeliveries        = "notifier.deliveries"
-	BindingKeyDeliveries   = "notification.*"
-	RoutingKeyConfirmation = "notification.confirmation"
-	RoutingKeyRelease      = "notification.release"
+	// Release notifications queue: fire-and-forget, no saga (an outbox is
+	// the right fix for durable release delivery, not orchestration).
+	QueueDeliveries      = "notifier.deliveries"
+	BindingKeyDeliveries = "notification.*"
+	RoutingKeyRelease    = "notification.release"
 
 	// Subscribe-saga: notifier consumes commands here.
 	QueueSagaCommands             = "notifier.commands"
