@@ -20,8 +20,8 @@ func TestSubscribe_Success(t *testing.T) {
 	w := doRequest(newTestRouter(svc), http.MethodPost, "/api/subscribe",
 		strings.NewReader(`{"email":"user@example.com","repo":"golang/go"}`))
 
-	require.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "Subscription successful")
+	require.Equal(t, http.StatusAccepted, w.Code)
+	assert.Contains(t, w.Body.String(), "Subscription accepted")
 	svc.AssertExpectations(t)
 }
 

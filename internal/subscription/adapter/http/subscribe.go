@@ -55,6 +55,6 @@ func (h *Handler) Subscribe(c *gin.Context) {
 		return
 	}
 
-	slog.InfoContext(ctx, "subscribe: confirmation email sent", "email", email, "repo", repo)
-	c.JSON(http.StatusOK, messageResponse{msgSubscribeSuccess})
+	slog.InfoContext(ctx, "subscribe: accepted, saga started", "email", email, "repo", repo)
+	c.JSON(http.StatusAccepted, messageResponse{msgSubscribeSuccess})
 }

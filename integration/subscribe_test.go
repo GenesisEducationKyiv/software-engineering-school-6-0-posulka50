@@ -38,12 +38,13 @@ func TestSubscribe_Success(t *testing.T) {
 	resp := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	body := jsonBody(t, resp)
-	assert.Contains(t, body["message"], "Subscription successful")
+	assert.Contains(t, body["message"], "Subscription accepted")
 
 	got := srv.em.waitForConfirmations(t, 1)
 	assert.Equal(t, []string{"user@example.com"}, got)
+	waitForSagaState(t, srv, "user@example.com", "completed")
 }
 
 func TestSubscribe_InvalidEmail(t *testing.T) {
@@ -110,8 +111,9 @@ func TestSubscribe_Duplicate(t *testing.T) {
 
 	resp1 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	resp1.Body.Close()
-	require.Equal(t, http.StatusOK, resp1.StatusCode)
+	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
 	srv.em.waitForConfirmations(t, 1)
+	waitForSagaState(t, srv, "user@example.com", "completed")
 
 	resp2 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp2.Body.Close()
@@ -120,26 +122,28 @@ func TestSubscribe_Duplicate(t *testing.T) {
 	assert.Len(t, srv.em.Confirmations(), 1)
 }
 
-// TestSubscribe_SenderFailsAsync_SubscriptionPersists documents the new
-// broker-based semantics: the subscribe endpoint succeeds as soon as the
-// publish to RabbitMQ goes through. If downstream email delivery later fails
-// the subscription stays in the DB (no rollback), so a duplicate attempt
-// returns 409.
-func TestSubscribe_SenderFailsAsync_SubscriptionPersists(t *testing.T) {
+// TestSubscribe_SenderFails_SagaCompensates verifies the saga compensation
+// path: when the notifier reports a delivery failure, the orchestrator
+// removes the orphaned pending subscription so a retry succeeds rather than
+// returning 409 against a row the user cannot ever confirm.
+func TestSubscribe_SenderFails_SagaCompensates(t *testing.T) {
 	srv := newTestServer(t)
 	srv.em.setErr(errors.New("resend unavailable"))
 
 	resp := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	// Confirm via DB that the row persists (consumer nacks without rollback).
-	require.Equal(t, 1, subscriptionCount(t, srv, "user@example.com"))
+	// Compensation runs asynchronously after the reply event arrives.
+	waitForSubscriptionCount(t, srv, "user@example.com", 0)
 
+	// Retry with a healthy sender succeeds.
 	srv.em.setErr(nil)
 	resp2 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp2.Body.Close()
-	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp2.StatusCode)
+	srv.em.waitForConfirmations(t, 1)
+	waitForSagaState(t, srv, "user@example.com", "completed")
 }
 
 func TestSubscribe_MissingFields(t *testing.T) {

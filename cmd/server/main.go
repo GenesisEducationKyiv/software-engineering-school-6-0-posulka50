@@ -71,8 +71,6 @@ func run() error {
 		}
 	}()
 
-	// orchestrator is wired now but SubscribeUseCase still uses the legacy
-	// publisher; a later commit will swap the use case to drive the saga.
 	svc := setupServices(dbPool, redisClient, publisher, cfg)
 
 	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
@@ -252,7 +250,9 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, publisher, cfg.BaseURL)
+	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+
+	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, orchestrator, cfg.BaseURL)
 	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscribeUC := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	getSubsUC := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
@@ -263,8 +263,6 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		scanInterval = time.Hour
 	}
 	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, publisher, cfg.BaseURL, scanInterval)
-
-	orchestrator := saga.New(publisher, sagaRepo, subRepo)
 
 	sagaTimeout, err := time.ParseDuration(cfg.SagaTimeout)
 	if err != nil {
