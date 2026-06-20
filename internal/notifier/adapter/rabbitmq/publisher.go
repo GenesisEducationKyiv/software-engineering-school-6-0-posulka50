@@ -39,9 +39,8 @@ type Publisher struct {
 	wg   sync.WaitGroup
 }
 
-// ErrPublisherNotReady is returned by SendConfirmation / SendReleaseNotification
-// when the underlying RabbitMQ connection is being re-established. Callers may
-// retry.
+// ErrPublisherNotReady is returned by the publish methods when the underlying
+// RabbitMQ connection is being re-established. Callers may retry.
 var ErrPublisherNotReady = errors.New("rabbitmq publisher not ready")
 
 const (
@@ -182,14 +181,6 @@ func (p *Publisher) Close() error {
 	}
 	p.wg.Wait()
 	return nil
-}
-
-func (p *Publisher) SendConfirmation(ctx context.Context, to, repo, confirmURL string) error {
-	return p.publish(ctx, RoutingKeyConfirmation, ConfirmationMessage{
-		To:         to,
-		Repo:       repo,
-		ConfirmURL: confirmURL,
-	})
 }
 
 func (p *Publisher) SendReleaseNotification(ctx context.Context, to, repo, tagName, releaseName, body, releaseURL, unsubscribeURL string) error {

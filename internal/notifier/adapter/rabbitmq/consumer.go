@@ -244,25 +244,6 @@ func (c *Consumer) handle(ctx context.Context, d amqp.Delivery) {
 
 func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 	switch d.RoutingKey {
-	case RoutingKeyConfirmation:
-		var msg ConfirmationMessage
-		if err := json.Unmarshal(d.Body, &msg); err != nil {
-			slog.Error("rabbitmq: unmarshal confirmation", "error", err)
-			_ = d.Nack(false, false)
-			return resultNack
-		}
-		if err := c.sender.SendConfirmation(ctx, msg.To, domain.ConfirmData{
-			Repo:       msg.Repo,
-			ConfirmURL: msg.ConfirmURL,
-		}); err != nil {
-			slog.Error("rabbitmq: send confirmation failed", "to", msg.To, "repo", msg.Repo, "error", err)
-			_ = d.Nack(false, false)
-			return resultNack
-		}
-		_ = d.Ack(false)
-		slog.Info("rabbitmq: confirmation delivered", "to", msg.To, "repo", msg.Repo)
-		return resultAck
-
 	case RoutingKeyCmdSendConfirmation:
 		var msg SendConfirmationCommand
 		if err := json.Unmarshal(d.Body, &msg); err != nil {
