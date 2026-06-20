@@ -73,9 +73,9 @@ func run() error {
 
 	// orchestrator is wired now but SubscribeUseCase still uses the legacy
 	// publisher; a later commit will swap the use case to drive the saga.
-	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner, orchestrator := setupServices(dbPool, redisClient, publisher, cfg)
+	svc := setupServices(dbPool, redisClient, publisher, cfg)
 
-	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, orchestrator)
+	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
 	if err != nil {
 		return fmt.Errorf("connect saga replies consumer: %w", err)
 	}
@@ -85,11 +85,12 @@ func run() error {
 		}
 	}()
 
-	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
+	router := newRouter(cfg, subscriptionhttp.New(svc.subscribe, svc.confirm, svc.unsubscribe, svc.getSubs))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go scanner.Start(ctx)
+	go svc.scanner.Start(ctx)
+	go svc.sweeper.Run(ctx)
 
 	repliesDone := make(chan struct{})
 	go func() {
@@ -227,14 +228,17 @@ func newServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) (
-	*subscriptionapp.SubscribeUseCase,
-	*subscriptionapp.ConfirmUseCase,
-	*subscriptionapp.UnsubscribeUseCase,
-	*subscriptionapp.GetSubscriptionsUseCase,
-	*releaseapp.Scanner,
-	*saga.Orchestrator,
-) {
+type appServices struct {
+	subscribe    *subscriptionapp.SubscribeUseCase
+	confirm      *subscriptionapp.ConfirmUseCase
+	unsubscribe  *subscriptionapp.UnsubscribeUseCase
+	getSubs      *subscriptionapp.GetSubscriptionsUseCase
+	scanner      *releaseapp.Scanner
+	orchestrator *saga.Orchestrator
+	sweeper      *saga.TimeoutSweeper
+}
+
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) *appServices {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(dbPool)
@@ -262,7 +266,27 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 
 	orchestrator := saga.New(publisher, sagaRepo, subRepo)
 
-	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner, orchestrator
+	sagaTimeout, err := time.ParseDuration(cfg.SagaTimeout)
+	if err != nil {
+		slog.Warn("invalid SAGA_TIMEOUT, defaulting to 5m", "value", cfg.SagaTimeout)
+		sagaTimeout = 5 * time.Minute
+	}
+	sweepInterval, err := time.ParseDuration(cfg.SagaSweepInterval)
+	if err != nil {
+		slog.Warn("invalid SAGA_SWEEP_INTERVAL, defaulting to 30s", "value", cfg.SagaSweepInterval)
+		sweepInterval = 30 * time.Second
+	}
+	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, sagaTimeout, sweepInterval)
+
+	return &appServices{
+		subscribe:    subscribeUC,
+		confirm:      confirmUC,
+		unsubscribe:  unsubscribeUC,
+		getSubs:      getSubsUC,
+		scanner:      scanner,
+		orchestrator: orchestrator,
+		sweeper:      sweeper,
+	}
 }
 
 const (
