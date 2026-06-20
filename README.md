@@ -10,6 +10,27 @@ A Go service that lets users subscribe to email notifications whenever a new rel
 
 For architecture, data model, sequence diagrams, and design decisions see [docs/system-design-document.md](docs/system-design-document.md).
 
+### Subscribe saga
+
+Confirmation email delivery spans two services (`app` orchestrator, `notifier`
+participant) and is implemented as an orchestrated saga over RabbitMQ:
+
+1. `POST /api/subscribe` inserts the subscription + a `pending` saga row, then
+   publishes a `SendConfirmationCommand` and returns `202 Accepted`.
+2. `notifier` consumes the command, calls Resend, and publishes a reply event
+   (`confirmation_sent` or `confirmation_failed`) carrying the saga id.
+3. `app` consumes the reply: on success the saga is marked `completed`; on
+   failure the orchestrator **compensates** by deleting the orphaned pending
+   subscription so a retry succeeds rather than colliding with a row the user
+   can never confirm.
+4. A timeout sweeper (`SAGA_TIMEOUT`, default `5m`) compensates any saga left
+   in `pending` long enough to count as a lost reply, so a notifier crash
+   between Resend and the reply publish does not strand subscriptions.
+
+Saga state lives in the `subscription_sagas` table and is independent of the
+domain row; reply handlers are idempotent (`WHERE state='pending'` guard), so
+broker redeliveries are no-ops.
+
 ```
 cmd/server/main.go          ← wires everything together
 internal/
@@ -35,7 +56,7 @@ Follows the Swagger contract at `swagger.yaml`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/subscribe` | Subscribe an email to a GitHub repository |
+| `POST` | `/api/subscribe` | Subscribe an email to a GitHub repository. Returns `202 Accepted` — confirmation email is dispatched asynchronously via the Subscribe saga (see below). |
 | `GET` | `/api/confirm/:token` | Confirm subscription via emailed token |
 | `GET` | `/api/unsubscribe/:token` | Unsubscribe via token |
 | `GET` | `/api/subscriptions?email=` | List confirmed subscriptions for an email |
@@ -111,6 +132,9 @@ go run ./cmd/server
 | `BASE_URL` | `http://localhost:8080` | Used in confirmation/unsubscribe links |
 | `SCAN_INTERVAL` | `1h` | Release polling interval (e.g. `10m`, `6h`) |
 | `API_KEY` | _(empty)_ | When set, write and list endpoints require `X-API-Key` header |
+| `BROKER_URL` | `amqp://guest:guest@localhost:5672/` | RabbitMQ connection string between app and notifier |
+| `SAGA_TIMEOUT` | `5m` | How long a Subscribe saga may stay `pending` before the sweeper compensates it |
+| `SAGA_SWEEP_INTERVAL` | `30s` | How often the sweeper scans for stuck sagas |
 
 ---
 
