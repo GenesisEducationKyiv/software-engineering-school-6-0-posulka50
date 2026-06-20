@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasedomain "github.com/posul/github-notifier/internal/release/domain"
@@ -31,31 +30,35 @@ type repoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
-type confirmationSender interface {
-	SendConfirmation(ctx context.Context, to string, data notifierdomain.ConfirmData) error
+// sagaStarter is the orchestrator entry point used by Subscribe. Satisfied by
+// *saga.Orchestrator via structural typing. Returning the saga ID is purely
+// informational here; the use case does not track it (the orchestrator owns
+// the lifecycle from this point on).
+type sagaStarter interface {
+	Start(ctx context.Context, sub *domain.Subscription, confirmURL string) (string, error)
 }
 
 type SubscribeUseCase struct {
-	repos       subscriptionRepoStore
-	subs        subscribeSubStore
-	github      repoChecker
-	emailSender confirmationSender
-	baseURL     string
+	repos   subscriptionRepoStore
+	subs    subscribeSubStore
+	github  repoChecker
+	saga    sagaStarter
+	baseURL string
 }
 
 func NewSubscribeUseCase(
 	repos subscriptionRepoStore,
 	subs subscribeSubStore,
 	githubClient repoChecker,
-	emailSender confirmationSender,
+	saga sagaStarter,
 	baseURL string,
 ) *SubscribeUseCase {
 	return &SubscribeUseCase{
-		repos:       repos,
-		subs:        subs,
-		github:      githubClient,
-		emailSender: emailSender,
-		baseURL:     baseURL,
+		repos:   repos,
+		subs:    subs,
+		github:  githubClient,
+		saga:    saga,
+		baseURL: baseURL,
 	}
 }
 
@@ -105,12 +108,12 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 	}
 
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", uc.baseURL, sub.ConfirmToken)
-	if err := uc.emailSender.SendConfirmation(ctx, emailAddr, notifierdomain.ConfirmData{
-		Repo:       repoName,
-		ConfirmURL: confirmURL,
-	}); err != nil {
+	if _, err := uc.saga.Start(ctx, sub, confirmURL); err != nil {
+		// The saga never went live (publish failed); the orchestrator already
+		// marked its journal entry compensated. The just-created subscription
+		// row has no live saga to clean it up, so we delete it here.
 		_ = uc.subs.Delete(ctx, sub.ID)
-		return fmt.Errorf("send confirmation email: %w", err)
+		return fmt.Errorf("start subscribe saga: %w", err)
 	}
 
 	metrics.SubscriptionsCreatedTotal.Inc()

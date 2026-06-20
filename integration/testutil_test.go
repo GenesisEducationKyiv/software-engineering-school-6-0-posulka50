@@ -29,6 +29,7 @@ import (
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/saga"
 )
 
 var (
@@ -176,17 +177,24 @@ type testServer struct {
 	pool *pgxpool.Pool
 }
 
-// newTestServer wires the subscription HTTP handler to a real publisher that
-// writes to the shared RabbitMQ container; a per-test consumer drains the
-// queue into stubEmail. Tables and queue are reset before each test for
-// isolation.
+// newTestServer wires the full Subscribe saga end-to-end against the shared
+// RabbitMQ + Postgres containers:
+//
+//   - App side: SubscribeUseCase -> Orchestrator -> Publisher -> command queue.
+//   - Notifier side (in-test): rabbitmq.Consumer -> stubEmail.SendConfirmation
+//     -> Publisher -> reply event queue.
+//   - App side again: saga.RepliesConsumer -> Orchestrator.HandleSent / HandleFailed.
+//
+// Tables and all three saga queues are reset before each test for isolation.
+// Tests observe outcomes via stubEmail (for sent confirmations) and the DB
+// (for compensation effects on subscriptions / saga state).
 func newTestServer(tb testing.TB) *testServer {
 	tb.Helper()
 
-	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE repositories CASCADE"); err != nil {
+	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE repositories, subscription_sagas CASCADE"); err != nil {
 		tb.Fatalf("truncate: %v", err)
 	}
-	purgeQueue(tb)
+	purgeQueues(tb)
 
 	gh := &stubGitHub{}
 	em := &stubEmail{}
@@ -201,9 +209,8 @@ func newTestServer(tb testing.TB) *testServer {
 		}
 	})
 
-	// Reuse the same publisher for saga reply events: legacy tests never
-	// trigger a SendConfirmationCommand, but Consumer requires a non-nil
-	// ReplyPublisher to dispatch the saga case.
+	// Notifier side: consumes both legacy deliveries and saga commands,
+	// publishes reply events via the same publisher.
 	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher)
 	if err != nil {
 		tb.Fatalf("create consumer: %v", err)
@@ -228,8 +235,32 @@ func newTestServer(tb testing.TB) *testServer {
 
 	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
+	sagaRepo := subscriptionpostgres.NewSagaRepository(sharedPool)
 
-	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, publisher, "http://test")
+	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+
+	// App side: consumes saga reply events, drives orchestrator transitions.
+	replies, err := saga.NewRepliesConsumer(sharedAMQP, orchestrator)
+	if err != nil {
+		tb.Fatalf("create replies consumer: %v", err)
+	}
+	repliesCtx, cancelReplies := context.WithCancel(context.Background())
+	repliesDone := make(chan struct{})
+	go func() {
+		defer close(repliesDone)
+		if err := replies.Run(repliesCtx); err != nil {
+			tb.Logf("replies consumer run: %v", err)
+		}
+	}()
+	tb.Cleanup(func() {
+		cancelReplies()
+		<-repliesDone
+		if err := replies.Close(); err != nil {
+			tb.Logf("replies consumer close: %v", err)
+		}
+	})
+
+	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, orchestrator, "http://test")
 	confirmer := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscriber := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	lister := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
@@ -249,9 +280,10 @@ func newTestServer(tb testing.TB) *testServer {
 	return &testServer{Server: srv, gh: gh, em: em, pool: sharedPool}
 }
 
-// purgeQueue drops any messages a previous test left in the shared queue so
-// the new consumer cannot pick up stale work.
-func purgeQueue(tb testing.TB) {
+// purgeQueues drops any messages prior tests left in the shared queues so the
+// new consumers cannot pick up stale work. All three saga-related queues are
+// purged to avoid cross-test pollution.
+func purgeQueues(tb testing.TB) {
 	tb.Helper()
 	conn, err := amqp.Dial(sharedAMQP)
 	if err != nil {
@@ -266,7 +298,9 @@ func purgeQueue(tb testing.TB) {
 	if err := rabbitmq.Declare(ch); err != nil {
 		tb.Fatalf("declare topology for purge: %v", err)
 	}
-	if _, err := ch.QueuePurge(rabbitmq.QueueDeliveries, false); err != nil {
-		tb.Fatalf("purge queue: %v", err)
+	for _, q := range []string{rabbitmq.QueueDeliveries, rabbitmq.QueueSagaCommands, rabbitmq.QueueSagaEvents} {
+		if _, err := ch.QueuePurge(q, false); err != nil {
+			tb.Fatalf("purge queue %q: %v", q, err)
+		}
 	}
 }

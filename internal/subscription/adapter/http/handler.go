@@ -15,7 +15,7 @@ const (
 	msgInvalidRequestBody   = "invalid request body"
 	msgEmailAndRepoRequired = "email and repo are required"
 	msgEmailRequired        = "email query parameter is required"
-	msgSubscribeSuccess     = "Subscription successful. Confirmation email sent."
+	msgSubscribeSuccess     = "Subscription accepted. Check your inbox shortly to confirm."
 	msgConfirmSuccess       = "Subscription confirmed successfully"
 	msgUnsubscribeSuccess   = "Unsubscribed successfully"
 )
