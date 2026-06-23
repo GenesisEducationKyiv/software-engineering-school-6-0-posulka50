@@ -19,10 +19,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/posul/github-notifier/internal/email"
-	"github.com/posul/github-notifier/internal/handler"
-	"github.com/posul/github-notifier/internal/repository"
-	"github.com/posul/github-notifier/internal/service"
+	notifierhttp "github.com/posul/github-notifier/internal/notifier/adapter/http"
+	"github.com/posul/github-notifier/internal/notifier/adapter/httpclient"
+	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
+	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
+	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
+	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 )
 
 var sharedPool *pgxpool.Pool
@@ -96,12 +99,15 @@ type stubGitHub struct{ err error }
 
 func (s *stubGitHub) CheckRepo(_ context.Context, _, _ string) error { return s.err }
 
+// stubEmail satisfies notifier/adapter/http.Sender. It is mounted behind the
+// notifier-service HTTP handler in tests so the server-under-test exercises
+// the real HTTP transport.
 type stubEmail struct {
 	confirmations []string
 	err           error
 }
 
-func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ email.ConfirmData) error {
+func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ notifierdomain.ConfirmData) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -109,7 +115,7 @@ func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ email.Confi
 	return nil
 }
 
-func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ email.ReleaseData) error {
+func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ notifierdomain.ReleaseData) error {
 	return nil
 }
 
@@ -120,8 +126,10 @@ type testServer struct {
 	pool *pgxpool.Pool
 }
 
-// newTestServer wires up an httptest.Server backed by the shared PostgreSQL instance.
-// Tables are truncated before each test to ensure isolation.
+// newTestServer wires up an httptest.Server backed by the shared PostgreSQL
+// instance. A second in-process httptest.Server hosts the notifier handler so
+// the monolith reaches it over real HTTP via httpclient. Tables are truncated
+// before each test to ensure isolation.
 func newTestServer(tb testing.TB) *testServer {
 	tb.Helper()
 
@@ -132,17 +140,27 @@ func newTestServer(tb testing.TB) *testServer {
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
-	repoRepo := repository.NewPostgresRepoRepository(sharedPool)
-	subRepo := repository.NewPostgresRepository(sharedPool)
-
-	subscriber := service.NewSubscribeUseCase(repoRepo, subRepo, gh, em, "http://test")
-	confirmer := service.NewConfirmUseCase(subRepo)
-	unsubscriber := service.NewUnsubscribeUseCase(subRepo)
-	lister := service.NewGetSubscriptionsUseCase(subRepo)
-
 	gin.SetMode(gin.TestMode)
+
+	notifierGin := gin.New()
+	notifierH := notifierhttp.New(em)
+	notifierGin.POST("/v1/notifications/confirmation", notifierH.Confirmation)
+	notifierGin.POST("/v1/notifications/release", notifierH.Release)
+	notifierSrv := httptest.NewServer(notifierGin)
+	tb.Cleanup(notifierSrv.Close)
+
+	emailClient := httpclient.NewClient(notifierSrv.URL, "")
+
+	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
+	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
+
+	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, emailClient, "http://test")
+	confirmer := subscriptionapp.NewConfirmUseCase(subRepo)
+	unsubscriber := subscriptionapp.NewUnsubscribeUseCase(subRepo)
+	lister := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
+
 	r := gin.New()
-	h := handler.New(subscriber, confirmer, unsubscriber, lister)
+	h := subscriptionhttp.New(subscriber, confirmer, unsubscriber, lister)
 
 	api := r.Group("/api")
 	api.POST("/subscribe", h.Subscribe)

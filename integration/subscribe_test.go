@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"testing"
 
-	githubclient "github.com/posul/github-notifier/internal/github"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

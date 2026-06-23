@@ -20,13 +20,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/posul/github-notifier/internal/config"
-	"github.com/posul/github-notifier/internal/email"
-	githubclient "github.com/posul/github-notifier/internal/github"
-	"github.com/posul/github-notifier/internal/handler"
-	"github.com/posul/github-notifier/internal/middleware"
-	"github.com/posul/github-notifier/internal/repository"
-	"github.com/posul/github-notifier/internal/service"
+	"github.com/posul/github-notifier/internal/notifier/adapter/httpclient"
+	"github.com/posul/github-notifier/internal/platform/config"
+	"github.com/posul/github-notifier/internal/platform/middleware"
+	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
+	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
+	releaseapp "github.com/posul/github-notifier/internal/release/app"
+	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
+	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 )
 
 func main() {
@@ -59,7 +61,7 @@ func run() error {
 
 	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, cfg)
 
-	router := newRouter(cfg, handler.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
+	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -143,7 +145,7 @@ func initRedis(redisURL string) *redis.Client {
 	return client
 }
 
-func newRouter(cfg *config.Config, h *handler.Handler) *gin.Engine {
+func newRouter(cfg *config.Config, h *subscriptionhttp.Handler) *gin.Engine {
 	gin.SetMode(cfg.GinMode)
 
 	router := gin.New()
@@ -186,17 +188,17 @@ func newServer(port string, handler http.Handler) *http.Server {
 }
 
 func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (
-	*service.SubscribeUseCase,
-	*service.ConfirmUseCase,
-	*service.UnsubscribeUseCase,
-	*service.GetSubscriptionsUseCase,
-	*service.Scanner,
+	*subscriptionapp.SubscribeUseCase,
+	*subscriptionapp.ConfirmUseCase,
+	*subscriptionapp.UnsubscribeUseCase,
+	*subscriptionapp.GetSubscriptionsUseCase,
+	*releaseapp.Scanner,
 ) {
-	repoRepo := repository.NewPostgresRepoRepository(dbPool)
-	subRepo := repository.NewPostgresRepository(dbPool)
+	repoRepo := releasepostgres.NewRepoRepository(dbPool)
+	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
-	emailSender := email.NewSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.ResendAPIURL, email.NewTemplateRenderer())
+	emailSender := httpclient.NewClient(cfg.NotifierURL, cfg.NotifierAuthToken)
 
 	var checker githubclient.RepoChecker = repoCheckerClient
 	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient
@@ -205,17 +207,17 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subscribeUC := service.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
-	confirmUC := service.NewConfirmUseCase(subRepo)
-	unsubscribeUC := service.NewUnsubscribeUseCase(subRepo)
-	getSubsUC := service.NewGetSubscriptionsUseCase(subRepo)
+	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
+	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
+	unsubscribeUC := subscriptionapp.NewUnsubscribeUseCase(subRepo)
+	getSubsUC := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
 
 	scanInterval, err := time.ParseDuration(cfg.ScanInterval)
 	if err != nil {
 		slog.Warn("invalid SCAN_INTERVAL, defaulting to 1h", "value", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := service.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
+	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
 
 	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
 }

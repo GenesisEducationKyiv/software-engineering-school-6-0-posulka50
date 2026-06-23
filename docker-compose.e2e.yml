@@ -34,17 +34,40 @@ services:
       timeout: 3s
       retries: 10
 
+  notifier:
+    build:
+      context: .
+      args:
+        TARGET: notifier
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: "8081"
+      RESEND_API_KEY: fake-key
+      EMAIL_FROM: test@example.com
+      RESEND_API_URL: http://fake-resend:3000
+      GIN_MODE: release
+    depends_on:
+      fake-resend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
   app:
-    build: .
+    build:
+      context: .
+      args:
+        TARGET: server
     ports:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/github_notifier?sslmode=disable
       REDIS_URL: redis://redis:6379
       BASE_URL: http://localhost:8080
-      RESEND_API_KEY: fake-key
-      RESEND_API_URL: http://fake-resend:3000
-      EMAIL_FROM: test@example.com
+      NOTIFIER_URL: http://notifier:8081
       SCAN_INTERVAL: 24h
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GIN_MODE: release
@@ -53,7 +76,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      fake-resend:
+      notifier:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
