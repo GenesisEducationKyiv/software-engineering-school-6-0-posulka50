@@ -157,6 +157,35 @@ Files in `migrations/` follow `{version}_{title}.{up|down}.sql` naming conventio
 
 ---
 
+## gRPC contract (buf)
+
+The `app -> notifier` Subscribe-saga call has a gRPC contract defined in
+[`proto/notifier/v1/notification.proto`](proto/notifier/v1/notification.proto)
+and managed with [buf](https://buf.build). Generated Go code is committed to
+`proto/gen/` so the repository builds without buf installed.
+
+Install the tooling once:
+
+```bash
+make proto-tools
+# or manually:
+go install github.com/bufbuild/buf/cmd/buf@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+Lint and regenerate:
+
+```bash
+make proto-lint   # buf lint
+make proto-gen    # buf generate -> proto/gen/...
+```
+
+The gRPC server and client wiring are added in follow-up commits; this commit
+introduces only the contract and the toolchain.
+
+---
+
 ## Extras implemented
 
 | Feature | Details |
