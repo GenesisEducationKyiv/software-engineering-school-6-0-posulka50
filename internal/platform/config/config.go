@@ -14,6 +14,11 @@ type Config struct {
 
 	BrokerURL string
 
+	// NotifierGRPCAddr is the host:port of the notifier service's gRPC
+	// listener. Used by the TimeoutSweeper to attempt a synchronous retry
+	// before compensating a stuck saga.
+	NotifierGRPCAddr string
+
 	BaseURL      string
 	ScanInterval string
 	GinMode      string
@@ -29,12 +34,15 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Port:         getEnv("PORT", "8080"),
-		APIKey:       os.Getenv("API_KEY"),
-		DatabaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/github_notifier?sslmode=disable"),
-		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
-		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
-		BrokerURL:    getEnv("BROKER_URL", "amqp://guest:guest@localhost:5672/"),
+		Port:        getEnv("PORT", "8080"),
+		APIKey:      os.Getenv("API_KEY"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/github_notifier?sslmode=disable"),
+		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"),
+		BrokerURL:   getEnv("BROKER_URL", "amqp://guest:guest@localhost:5672/"),
+
+		NotifierGRPCAddr: getEnv("NOTIFIER_GRPC_ADDR", "localhost:50051"),
+
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
 		GinMode:      getEnv("GIN_MODE", "release"),

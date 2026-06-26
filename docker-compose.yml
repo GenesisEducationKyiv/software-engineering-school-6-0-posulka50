@@ -16,6 +16,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       API_KEY: ${API_KEY:-}
       BROKER_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFIER_GRPC_ADDR: notifier:50051
       GIN_MODE: release
     depends_on:
       db:

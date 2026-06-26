@@ -19,6 +19,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/platform/config"
@@ -31,6 +33,7 @@ import (
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
+	notifierv1 "github.com/posul/github-notifier/proto/gen/notifier/v1"
 )
 
 func main() {
@@ -71,7 +74,19 @@ func run() error {
 		}
 	}()
 
-	svc := setupServices(dbPool, redisClient, publisher, cfg)
+	notifierConn, err := grpc.NewClient(cfg.NotifierGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial notifier grpc %s: %w", cfg.NotifierGRPCAddr, err)
+	}
+	defer func() {
+		if err := notifierConn.Close(); err != nil {
+			slog.Warn("notifier grpc conn close error", "error", err)
+		}
+	}()
+	slog.Info("notifier grpc client ready", "addr", cfg.NotifierGRPCAddr)
+	notifierClient := notifierv1.NewEmailNotifierServiceClient(notifierConn)
+
+	svc := setupServices(dbPool, redisClient, publisher, notifierClient, cfg)
 
 	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
 	if err != nil {
@@ -234,9 +249,13 @@ type appServices struct {
 	scanner      *releaseapp.Scanner
 	orchestrator *saga.Orchestrator
 	sweeper      *saga.TimeoutSweeper
+	// retrier wraps the notifier gRPC client. It is constructed here so the
+	// connection is exercised on startup; the sweeper integration that uses
+	// it lands in a follow-up commit.
+	retrier *saga.Retrier
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) *appServices {
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, notifierClient notifierv1.EmailNotifierServiceClient, cfg *config.Config) *appServices {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(dbPool)
@@ -284,6 +303,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		scanner:      scanner,
 		orchestrator: orchestrator,
 		sweeper:      sweeper,
+		retrier:      saga.NewRetrier(notifierClient),
 	}
 }
 
