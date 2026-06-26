@@ -49,6 +49,7 @@ services:
         TARGET: notifier
     environment:
       PORT: "8081"
+      NOTIFIER_GRPC_PORT: "50051"
       RESEND_API_KEY: fake-key
       EMAIL_FROM: test@example.com
       RESEND_API_URL: http://fake-resend:3000

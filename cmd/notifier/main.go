@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,12 +15,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/grpc"
 
+	"github.com/posul/github-notifier/internal/notifier/adapter/grpcsrv"
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
 	"github.com/posul/github-notifier/internal/platform/logctx"
 	"github.com/posul/github-notifier/internal/platform/middleware"
+	notifierv1 "github.com/posul/github-notifier/proto/gen/notifier/v1"
 )
 
 const (
@@ -41,6 +45,7 @@ func run() error {
 	}
 
 	port := getEnv("PORT", "8081")
+	grpcPort := getEnv("NOTIFIER_GRPC_PORT", "50051")
 	resendKey := os.Getenv("RESEND_API_KEY")
 	resendURL := getEnv("RESEND_API_URL", "https://api.resend.com/emails")
 	emailFrom := os.Getenv("EMAIL_FROM")
@@ -51,6 +56,11 @@ func run() error {
 	}
 
 	sender := resend.NewSender(resendKey, emailFrom, resendURL, templates.NewRenderer())
+
+	// Dedupe is shared between the RabbitMQ consumer and the gRPC server so a
+	// sweeper-triggered sync retry does not re-send an email the async path
+	// already delivered.
+	dedupe := grpcsrv.NewDefaultDedupe()
 
 	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
 	defer cancelConsumer()
@@ -67,7 +77,7 @@ func run() error {
 		}
 	}()
 
-	consumer, err := dialConsumerWithRetry(brokerURL, sender, replies)
+	consumer, err := dialConsumerWithRetry(brokerURL, sender, replies, dedupe)
 	if err != nil {
 		return fmt.Errorf("connect rabbitmq: %w", err)
 	}
@@ -76,6 +86,21 @@ func run() error {
 		defer close(consumerDone)
 		if err := consumer.Run(consumerCtx); err != nil {
 			slog.Error("notifier: consumer exited with error", "error", err)
+		}
+	}()
+
+	grpcLis, err := net.Listen("tcp", ":"+grpcPort)
+	if err != nil {
+		return fmt.Errorf("listen grpc %s: %w", grpcPort, err)
+	}
+	grpcServer := grpc.NewServer()
+	notifierv1.RegisterEmailNotifierServiceServer(grpcServer, grpcsrv.NewServer(sender, dedupe))
+	grpcDone := make(chan struct{})
+	go func() {
+		defer close(grpcDone)
+		slog.Info("notifier: grpc listening", "port", grpcPort)
+		if err := grpcServer.Serve(grpcLis); err != nil {
+			slog.Error("notifier: grpc server error", "error", err)
 		}
 	}()
 
@@ -109,6 +134,18 @@ func run() error {
 		slog.Warn("notifier: server forced to shutdown", "error", err)
 	}
 
+	go func() {
+		<-shutdownCtx.Done()
+		grpcServer.Stop()
+	}()
+	grpcServer.GracefulStop()
+
+	select {
+	case <-grpcDone:
+	case <-shutdownCtx.Done():
+		slog.Warn("notifier: grpc did not stop in time")
+	}
+
 	select {
 	case <-consumerDone:
 	case <-shutdownCtx.Done():
@@ -122,10 +159,10 @@ func run() error {
 	return nil
 }
 
-func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender, replies rabbitmq.ReplyPublisher) (*rabbitmq.Consumer, error) {
+func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender, replies rabbitmq.ReplyPublisher, marker rabbitmq.Marker) (*rabbitmq.Consumer, error) {
 	var lastErr error
 	for attempt := 1; attempt <= brokerDialAttempts; attempt++ {
-		c, err := rabbitmq.NewConsumer(brokerURL, sender, replies)
+		c, err := rabbitmq.NewConsumer(brokerURL, sender, replies, marker)
 		if err == nil {
 			slog.Info("notifier: connected to rabbitmq", "attempt", attempt)
 			return c, nil

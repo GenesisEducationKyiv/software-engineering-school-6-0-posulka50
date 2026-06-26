@@ -210,8 +210,9 @@ func newTestServer(tb testing.TB) *testServer {
 	})
 
 	// Notifier side: consumes both legacy deliveries and saga commands,
-	// publishes reply events via the same publisher.
-	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher)
+	// publishes reply events via the same publisher. Marker is nil here:
+	// the gRPC dedupe is not exercised by this integration suite.
+	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher, nil)
 	if err != nil {
 		tb.Fatalf("create consumer: %v", err)
 	}
