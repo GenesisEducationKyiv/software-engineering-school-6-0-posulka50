@@ -20,24 +20,35 @@ type failHandler interface {
 	HandleFailed(ctx context.Context, sagaID, reason string) error
 }
 
+// syncAttempter is the optional last-chance path tried before compensation:
+// the sweeper asks the orchestrator to make a synchronous gRPC call to the
+// notifier. A nil error means the saga was rescued; any error falls through
+// to HandleFailed. Satisfied by *Orchestrator.AttemptSyncRetry.
+type syncAttempter interface {
+	AttemptSyncRetry(ctx context.Context, sagaID string) error
+}
+
 // TimeoutSweeper is the safety net for Subscribe sagas whose reply event
 // never arrived (notifier crashed mid-send, broker dropped the event, etc.).
 // It runs as a background goroutine, periodically scanning for pending sagas
-// older than the configured timeout and routing them through the standard
-// failed-event compensation.
+// older than the configured timeout. Each stuck saga is first offered to
+// the syncAttempter for a synchronous retry; only if that fails does the
+// sweeper fall through to the existing compensation path.
 type TimeoutSweeper struct {
-	sagas    sweeperStore
-	handler  failHandler
-	timeout  time.Duration
-	interval time.Duration
+	sagas     sweeperStore
+	attempter syncAttempter
+	handler   failHandler
+	timeout   time.Duration
+	interval  time.Duration
 }
 
-func NewTimeoutSweeper(sagas sweeperStore, handler failHandler, timeout, interval time.Duration) *TimeoutSweeper {
+func NewTimeoutSweeper(sagas sweeperStore, attempter syncAttempter, handler failHandler, timeout, interval time.Duration) *TimeoutSweeper {
 	return &TimeoutSweeper{
-		sagas:    sagas,
-		handler:  handler,
-		timeout:  timeout,
-		interval: interval,
+		sagas:     sagas,
+		attempter: attempter,
+		handler:   handler,
+		timeout:   timeout,
+		interval:  interval,
 	}
 }
 
@@ -77,7 +88,14 @@ func (s *TimeoutSweeper) sweep(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := s.handler.HandleFailed(ctx, saga.ID, "timeout"); err != nil {
+		retryErr := s.attempter.AttemptSyncRetry(ctx, saga.ID)
+		if retryErr == nil {
+			continue
+		}
+		slog.WarnContext(ctx, "saga: sync retry failed, falling through to compensation",
+			"saga_id", saga.ID, "error", retryErr)
+		reason := "timeout_after_grpc_retry_failed: " + retryErr.Error()
+		if err := s.handler.HandleFailed(ctx, saga.ID, reason); err != nil {
 			slog.ErrorContext(ctx, "saga: sweep compensation failed", "saga_id", saga.ID, "error", err)
 		}
 	}

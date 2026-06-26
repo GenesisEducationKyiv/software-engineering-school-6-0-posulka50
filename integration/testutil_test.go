@@ -149,6 +149,14 @@ func (s *stubEmail) setErr(err error) {
 	s.err = err
 }
 
+// stubRetrier satisfies saga.syncRetrier. The integration suite does not
+// drive the sweeper into the gRPC path, so any call here is a test bug.
+type stubRetrier struct{}
+
+func (stubRetrier) Retry(_ context.Context, _, _, _, _ string) error {
+	return errors.New("stubRetrier: gRPC path not exercised by integration tests")
+}
+
 func (s *stubEmail) Confirmations() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,7 +246,9 @@ func newTestServer(tb testing.TB) *testServer {
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(sharedPool)
 
-	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+	// Integration tests do not exercise the gRPC retry path: pass a stub
+	// retrier that always errors so any accidental call surfaces loudly.
+	orchestrator := saga.New(publisher, sagaRepo, subRepo, stubRetrier{}, "http://test")
 
 	// App side: consumes saga reply events, drives orchestrator transitions.
 	replies, err := saga.NewRepliesConsumer(sharedAMQP, orchestrator)

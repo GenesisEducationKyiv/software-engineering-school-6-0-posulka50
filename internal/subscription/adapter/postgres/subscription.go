@@ -45,6 +45,22 @@ func (r *SubscriptionRepository) Create(ctx context.Context, sub *domain.Subscri
 	return nil
 }
 
+func (r *SubscriptionRepository) GetByID(ctx context.Context, id string) (*domain.Subscription, error) {
+	var sub domain.Subscription
+	err := r.db.QueryRow(ctx,
+		`SELECT`+subSelectCols+subFromJoin+`
+		 WHERE s.id = $1`, id,
+	).Scan(&sub.ID, &sub.RepoID, &sub.Repo, &sub.Email, &sub.Confirmed,
+		&sub.ConfirmToken, &sub.UnsubscribeToken, &sub.CreatedAt, &sub.LastSeenTag)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get by id: %w", err)
+	}
+	return &sub, nil
+}
+
 func (r *SubscriptionRepository) GetByConfirmToken(ctx context.Context, token string) (*domain.Subscription, error) {
 	var sub domain.Subscription
 	err := r.db.QueryRow(ctx,

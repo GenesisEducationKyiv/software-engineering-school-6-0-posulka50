@@ -249,10 +249,7 @@ type appServices struct {
 	scanner      *releaseapp.Scanner
 	orchestrator *saga.Orchestrator
 	sweeper      *saga.TimeoutSweeper
-	// retrier wraps the notifier gRPC client. It is constructed here so the
-	// connection is exercised on startup; the sweeper integration that uses
-	// it lands in a follow-up commit.
-	retrier *saga.Retrier
+	retrier      *saga.Retrier
 }
 
 func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, notifierClient notifierv1.EmailNotifierServiceClient, cfg *config.Config) *appServices {
@@ -269,7 +266,8 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+	retrier := saga.NewRetrier(notifierClient)
+	orchestrator := saga.New(publisher, sagaRepo, subRepo, retrier, cfg.BaseURL)
 
 	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, orchestrator, cfg.BaseURL)
 	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
@@ -293,7 +291,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		slog.Warn("invalid SAGA_SWEEP_INTERVAL, defaulting to 30s", "value", cfg.SagaSweepInterval)
 		sweepInterval = 30 * time.Second
 	}
-	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, sagaTimeout, sweepInterval)
+	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, orchestrator, sagaTimeout, sweepInterval)
 
 	return &appServices{
 		subscribe:    subscribeUC,
@@ -303,7 +301,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		scanner:      scanner,
 		orchestrator: orchestrator,
 		sweeper:      sweeper,
-		retrier:      saga.NewRetrier(notifierClient),
+		retrier:      retrier,
 	}
 }
 
