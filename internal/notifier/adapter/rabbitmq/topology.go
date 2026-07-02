@@ -15,11 +15,24 @@ const (
 
 	RoutingKeyConfirmation = "notification.confirmation"
 	RoutingKeyRelease      = "notification.release"
+
+	// Dead-letter topology. Messages nacked with requeue=false by the
+	// consumer (unmarshal errors, sender failures, unknown routing keys)
+	// are routed here instead of being silently dropped. Ops can inspect
+	// or replay from ExchangeDeadLetter / QueueDeadLetters.
+	ExchangeDeadLetter = "notifications.dlx"
+	QueueDeadLetters   = "notifier.dead_letters"
 )
 
 // Declare creates the exchange, queue and binding used by publisher and
-// consumer. It is idempotent and safe to call from either side at startup so
-// whichever boots first sets up the topology.
+// consumer, plus the dead-letter exchange and queue that hold rejected
+// messages. It is idempotent and safe to call from either side at startup
+// so whichever boots first sets up the topology.
+//
+// Note: adding x-dead-letter-exchange to an existing queue is a
+// PRECONDITION_FAILED because queue arguments are immutable. If upgrading
+// a running deployment, delete the notifier.deliveries queue once (it will
+// be recreated with the new args on next startup).
 func Declare(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		ExchangeNotifications,
@@ -33,13 +46,48 @@ func Declare(ch *amqp.Channel) error {
 		return fmt.Errorf("declare exchange %q: %w", ExchangeNotifications, err)
 	}
 
+	if err := ch.ExchangeDeclare(
+		ExchangeDeadLetter,
+		"fanout",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("declare exchange %q: %w", ExchangeDeadLetter, err)
+	}
+
+	if _, err := ch.QueueDeclare(
+		QueueDeadLetters,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("declare queue %q: %w", QueueDeadLetters, err)
+	}
+
+	if err := ch.QueueBind(
+		QueueDeadLetters,
+		"",
+		ExchangeDeadLetter,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("bind queue %q to %q: %w", QueueDeadLetters, ExchangeDeadLetter, err)
+	}
+
 	if _, err := ch.QueueDeclare(
 		QueueDeliveries,
 		true,
 		false,
 		false,
 		false,
-		nil,
+		amqp.Table{
+			"x-dead-letter-exchange": ExchangeDeadLetter,
+		},
 	); err != nil {
 		return fmt.Errorf("declare queue %q: %w", QueueDeliveries, err)
 	}
