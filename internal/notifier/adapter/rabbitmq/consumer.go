@@ -37,7 +37,13 @@ type Consumer struct {
 	ch   *amqp.Channel
 }
 
-const consumerPrefetch = 8
+const (
+	consumerPrefetch = 8
+
+	resultAck     = "ack"
+	resultNack    = "nack"
+	resultUnknown = "unknown"
+)
 
 var errSessionEnded = errors.New("rabbitmq consumer session ended")
 
@@ -156,7 +162,10 @@ func (c *Consumer) runSession(ctx context.Context) error {
 			slog.Info("rabbitmq: consumer stopped")
 			return nil
 		case amqErr := <-closeCh:
-			return fmt.Errorf("%w: %v", errSessionEnded, amqErr)
+			if amqErr == nil {
+				return errSessionEnded
+			}
+			return fmt.Errorf("%w: %w", errSessionEnded, amqErr)
 		case d, ok := <-deliveries:
 			if !ok {
 				return fmt.Errorf("%w: deliveries channel closed", errSessionEnded)
@@ -181,7 +190,7 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		if err := json.Unmarshal(d.Body, &msg); err != nil {
 			slog.Error("rabbitmq: unmarshal confirmation", "error", err)
 			_ = d.Nack(false, false)
-			return "nack"
+			return resultNack
 		}
 		if err := c.sender.SendConfirmation(ctx, msg.To, domain.ConfirmData{
 			Repo:       msg.Repo,
@@ -189,18 +198,18 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		}); err != nil {
 			slog.Error("rabbitmq: send confirmation failed", "to", msg.To, "repo", msg.Repo, "error", err)
 			_ = d.Nack(false, false)
-			return "nack"
+			return resultNack
 		}
 		_ = d.Ack(false)
 		slog.Info("rabbitmq: confirmation delivered", "to", msg.To, "repo", msg.Repo)
-		return "ack"
+		return resultAck
 
 	case RoutingKeyRelease:
 		var msg ReleaseMessage
 		if err := json.Unmarshal(d.Body, &msg); err != nil {
 			slog.Error("rabbitmq: unmarshal release", "error", err)
 			_ = d.Nack(false, false)
-			return "nack"
+			return resultNack
 		}
 		if err := c.sender.SendReleaseNotification(ctx, msg.To, domain.ReleaseData{
 			Repo:           msg.Repo,
@@ -212,15 +221,15 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		}); err != nil {
 			slog.Error("rabbitmq: send release failed", "to", msg.To, "repo", msg.Repo, "tag", msg.TagName, "error", err)
 			_ = d.Nack(false, false)
-			return "nack"
+			return resultNack
 		}
 		_ = d.Ack(false)
 		slog.Info("rabbitmq: release delivered", "to", msg.To, "repo", msg.Repo, "tag", msg.TagName)
-		return "ack"
+		return resultAck
 
 	default:
 		slog.Warn("rabbitmq: unknown routing key", "key", d.RoutingKey)
 		_ = d.Nack(false, false)
-		return "unknown"
+		return resultUnknown
 	}
 }

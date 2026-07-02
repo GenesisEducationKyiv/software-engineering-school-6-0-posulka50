@@ -5,7 +5,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-const labelStatus = "status"
+const (
+	labelStatus     = "status"
+	labelRoutingKey = "routing_key"
+)
 
 // defaultLatencyBuckets covers sub-millisecond responses up to long-running
 // background work (two minutes). Prometheus DefBuckets top out at 10s, which
@@ -85,23 +88,23 @@ var (
 	RabbitMQMessagesPublishedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "rabbitmq_messages_published_total",
 		Help: "Total messages published to RabbitMQ by routing key and status (ok, nack, unroutable, error).",
-	}, []string{"routing_key", labelStatus})
+	}, []string{labelRoutingKey, labelStatus})
 
 	RabbitMQPublishDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "rabbitmq_publish_duration_seconds",
 		Help:    "Duration of a RabbitMQ publish call in seconds.",
 		Buckets: defaultLatencyBuckets,
-	}, []string{"routing_key"})
+	}, []string{labelRoutingKey})
 
 	// RabbitMQ consumer metrics
 	RabbitMQMessagesConsumedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "rabbitmq_messages_consumed_total",
 		Help: "Total messages consumed from RabbitMQ by routing key and delivery result (ack, nack, unknown).",
-	}, []string{"routing_key", "result"})
+	}, []string{labelRoutingKey, "result"})
 
 	RabbitMQMessageProcessingDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "rabbitmq_message_processing_duration_seconds",
 		Help:    "Duration of RabbitMQ message handling in seconds.",
 		Buckets: defaultLatencyBuckets,
-	}, []string{"routing_key"})
+	}, []string{labelRoutingKey})
 )
