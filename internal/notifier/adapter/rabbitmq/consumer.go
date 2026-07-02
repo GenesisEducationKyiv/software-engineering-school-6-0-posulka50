@@ -155,75 +155,37 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 }
 
-func (c *Consumer) runSession(ctx context.Context) error {
-	closeCh := c.conn.NotifyClose(make(chan *amqp.Error, 1))
+type sessionQueue struct {
+	queue, tag string
+}
 
-	queues := []struct {
-		queue, tag string
-	}{
+func (c *Consumer) sessionQueues() []sessionQueue {
+	return []sessionQueue{
 		{QueueDeliveries, c.consumerName + ".deliveries"},
 		{QueueSagaCommands, c.consumerName + ".commands"},
 	}
+}
 
-	// Start Consume on every business queue up front so we can detect a
-	// setup failure before spawning any worker goroutine.
-	deliveryChans := make([]<-chan amqp.Delivery, 0, len(queues))
-	for _, q := range queues {
-		deliveries, err := c.ch.Consume(q.queue, q.tag, false, false, false, false, nil)
-		if err != nil {
-			return fmt.Errorf("start consume %q: %w", q.queue, err)
-		}
-		slog.Info("rabbitmq: consumer started", "queue", q.queue, "prefetch", consumerPrefetch)
-		deliveryChans = append(deliveryChans, deliveries)
+func (c *Consumer) runSession(ctx context.Context) error {
+	closeCh := c.conn.NotifyClose(make(chan *amqp.Error, 1))
+	queues := c.sessionQueues()
+
+	deliveryChans, err := c.startConsumers(queues)
+	if err != nil {
+		return err
 	}
 
 	sessionCtx, cancelSession := context.WithCancel(ctx)
 	defer cancelSession()
 
-	// A delivery channel closing without ctx cancellation signals a
-	// session-level failure that must trigger reconnect.
 	closedCh := make(chan string, len(queues))
-
 	var wg sync.WaitGroup
 	for i, q := range queues {
 		wg.Add(1)
-		go func(queue string, deliveries <-chan amqp.Delivery) {
-			defer wg.Done()
-			for {
-				select {
-				case <-sessionCtx.Done():
-					return
-				case d, ok := <-deliveries:
-					if !ok {
-						select {
-						case closedCh <- queue:
-						default:
-						}
-						return
-					}
-					c.handle(ctx, d)
-				}
-			}
-		}(q.queue, deliveryChans[i])
+		go c.consumeQueue(ctx, sessionCtx, &wg, q.queue, deliveryChans[i], closedCh)
 	}
 
-	var sessErr error
-	select {
-	case <-ctx.Done():
-		for _, q := range queues {
-			if err := c.ch.Cancel(q.tag, false); err != nil {
-				slog.Warn("rabbitmq: cancel consumer", "queue", q.queue, "error", err)
-			}
-		}
-	case amqErr := <-closeCh:
-		if amqErr == nil {
-			sessErr = errSessionEnded
-		} else {
-			sessErr = fmt.Errorf("%w: %w", errSessionEnded, amqErr)
-		}
-	case queue := <-closedCh:
-		sessErr = fmt.Errorf("%w: deliveries channel closed for %q", errSessionEnded, queue)
-	}
+	sessErr := c.awaitSessionEnd(ctx, queues, closeCh, closedCh)
 	cancelSession()
 	wg.Wait()
 
@@ -232,6 +194,57 @@ func (c *Consumer) runSession(ctx context.Context) error {
 		return nil
 	}
 	return sessErr
+}
+
+func (c *Consumer) startConsumers(queues []sessionQueue) ([]<-chan amqp.Delivery, error) {
+	deliveryChans := make([]<-chan amqp.Delivery, 0, len(queues))
+	for _, q := range queues {
+		deliveries, err := c.ch.Consume(q.queue, q.tag, false, false, false, false, nil)
+		if err != nil {
+			return nil, fmt.Errorf("start consume %q: %w", q.queue, err)
+		}
+		slog.Info("rabbitmq: consumer started", "queue", q.queue, "prefetch", consumerPrefetch)
+		deliveryChans = append(deliveryChans, deliveries)
+	}
+	return deliveryChans, nil
+}
+
+func (c *Consumer) consumeQueue(ctx, sessionCtx context.Context, wg *sync.WaitGroup, queue string, deliveries <-chan amqp.Delivery, closedCh chan<- string) {
+	defer wg.Done()
+	for {
+		select {
+		case <-sessionCtx.Done():
+			return
+		case d, ok := <-deliveries:
+			if !ok {
+				select {
+				case closedCh <- queue:
+				default:
+				}
+				return
+			}
+			c.handle(ctx, d)
+		}
+	}
+}
+
+func (c *Consumer) awaitSessionEnd(ctx context.Context, queues []sessionQueue, closeCh <-chan *amqp.Error, closedCh <-chan string) error {
+	select {
+	case <-ctx.Done():
+		for _, q := range queues {
+			if err := c.ch.Cancel(q.tag, false); err != nil {
+				slog.Warn("rabbitmq: cancel consumer", "queue", q.queue, "error", err)
+			}
+		}
+		return nil
+	case amqErr := <-closeCh:
+		if amqErr == nil {
+			return errSessionEnded
+		}
+		return fmt.Errorf("%w: %w", errSessionEnded, amqErr)
+	case queue := <-closedCh:
+		return fmt.Errorf("%w: deliveries channel closed for %q", errSessionEnded, queue)
+	}
 }
 
 func (c *Consumer) handle(ctx context.Context, d amqp.Delivery) {

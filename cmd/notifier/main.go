@@ -105,22 +105,33 @@ func run() error {
 		}
 	}()
 
+	runErr := waitForShutdown(consumerDone)
+	cancelConsumer()
+	gracefulShutdown(srv, consumer, consumerDone)
+	slog.Info("notifier: stopped")
+	return runErr
+}
+
+// waitForShutdown blocks until either a termination signal arrives or the
+// consumer goroutine exits. A silent consumer with a live HTTP server is
+// worse than a crash: the orchestrator would keep the pod around because
+// /health used to lie about it, so consumer death is surfaced as a non-nil
+// error and drives the process to restart.
+func waitForShutdown(consumerDone <-chan struct{}) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Either a signal or the consumer dying should trigger shutdown. A silent
-	// consumer with a live HTTP server is worse than a crash: the orchestrator
-	// keeps the pod around because /health used to lie about it.
-	var runErr error
 	select {
 	case <-quit:
 		slog.Info("notifier: shutting down gracefully")
+		return nil
 	case <-consumerDone:
-		runErr = errors.New("notifier: consumer exited unexpectedly")
 		slog.Error("notifier: consumer exited unexpectedly, shutting down")
+		return errors.New("notifier: consumer exited unexpectedly")
 	}
-	cancelConsumer()
+}
 
+func gracefulShutdown(srv *http.Server, consumer *rabbitmq.Consumer, consumerDone <-chan struct{}) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -135,9 +146,6 @@ func run() error {
 	if err := consumer.Close(); err != nil {
 		slog.Warn("notifier: consumer close error", "error", err)
 	}
-
-	slog.Info("notifier: stopped")
-	return runErr
 }
 
 func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender, replies rabbitmq.ReplyPublisher) (*rabbitmq.Consumer, error) {
