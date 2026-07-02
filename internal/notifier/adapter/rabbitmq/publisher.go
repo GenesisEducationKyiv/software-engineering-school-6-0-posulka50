@@ -11,7 +11,6 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
@@ -185,23 +184,23 @@ func (p *Publisher) Close() error {
 	return nil
 }
 
-func (p *Publisher) SendConfirmation(ctx context.Context, to string, data domain.ConfirmData) error {
+func (p *Publisher) SendConfirmation(ctx context.Context, to, repo, confirmURL string) error {
 	return p.publish(ctx, RoutingKeyConfirmation, ConfirmationMessage{
 		To:         to,
-		Repo:       data.Repo,
-		ConfirmURL: data.ConfirmURL,
+		Repo:       repo,
+		ConfirmURL: confirmURL,
 	})
 }
 
-func (p *Publisher) SendReleaseNotification(ctx context.Context, to string, data domain.ReleaseData) error {
+func (p *Publisher) SendReleaseNotification(ctx context.Context, to, repo, tagName, releaseName, body, releaseURL, unsubscribeURL string) error {
 	return p.publish(ctx, RoutingKeyRelease, ReleaseMessage{
 		To:             to,
-		Repo:           data.Repo,
-		TagName:        data.TagName,
-		ReleaseName:    data.ReleaseName,
-		Body:           data.Body,
-		ReleaseURL:     data.ReleaseURL,
-		UnsubscribeURL: data.UnsubscribeURL,
+		Repo:           repo,
+		TagName:        tagName,
+		ReleaseName:    releaseName,
+		Body:           body,
+		ReleaseURL:     releaseURL,
+		UnsubscribeURL: unsubscribeURL,
 	})
 }
 

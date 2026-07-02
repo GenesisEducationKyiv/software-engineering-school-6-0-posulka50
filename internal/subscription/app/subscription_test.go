@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasedomain "github.com/posul/github-notifier/internal/release/domain"
 	"github.com/posul/github-notifier/internal/subscription/app"
@@ -159,13 +158,9 @@ type mockEmail struct {
 	confirmErr    error
 }
 
-func (m *mockEmail) SendConfirmation(_ context.Context, _ string, _ notifierdomain.ConfirmData) error {
+func (m *mockEmail) SendConfirmation(_ context.Context, _, _, _ string) error {
 	m.confirmCalled = true
 	return m.confirmErr
-}
-
-func (m *mockEmail) SendReleaseNotification(_ context.Context, _ string, _ notifierdomain.ReleaseData) error {
-	return nil
 }
 
 func newSubscribeUC(repos *mockRepoRepo, subs *mockSubRepo, gh *mockGitHub, em *mockEmail) *app.SubscribeUseCase {

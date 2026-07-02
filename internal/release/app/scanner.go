@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	"github.com/posul/github-notifier/internal/release/domain"
@@ -29,7 +28,7 @@ type scannerSubStore interface {
 }
 
 type releaseSender interface {
-	SendReleaseNotification(ctx context.Context, to string, data notifierdomain.ReleaseData) error
+	SendReleaseNotification(ctx context.Context, to, repo, tagName, releaseName, body, releaseURL, unsubscribeURL string) error
 }
 
 // Scanner polls GitHub for new releases and notifies subscribers by email.
@@ -153,14 +152,9 @@ func (s *Scanner) processRepo(ctx context.Context, repo *domain.Repository, rele
 
 	for _, sub := range subs {
 		unsubURL := fmt.Sprintf("%s/api/unsubscribe/%s", s.baseURL, sub.UnsubscribeToken)
-		err = s.emailSender.SendReleaseNotification(ctx, sub.Email, notifierdomain.ReleaseData{
-			Repo:           repo.FullName,
-			TagName:        release.TagName,
-			ReleaseName:    release.Name,
-			Body:           release.Body,
-			ReleaseURL:     release.HTMLURL,
-			UnsubscribeURL: unsubURL,
-		})
+		err = s.emailSender.SendReleaseNotification(ctx, sub.Email,
+			repo.FullName, release.TagName, release.Name, release.Body, release.HTMLURL, unsubURL,
+		)
 		if err != nil {
 			slog.Error("scanner: failed to notify subscriber",
 				"email", sub.Email, "repo", repo.FullName, "tag", release.TagName, "error", err)

@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	"github.com/posul/github-notifier/internal/platform/metrics"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasedomain "github.com/posul/github-notifier/internal/release/domain"
@@ -32,7 +31,7 @@ type repoChecker interface {
 }
 
 type confirmationSender interface {
-	SendConfirmation(ctx context.Context, to string, data notifierdomain.ConfirmData) error
+	SendConfirmation(ctx context.Context, to, repo, confirmURL string) error
 }
 
 type SubscribeUseCase struct {
@@ -105,10 +104,7 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 	}
 
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", uc.baseURL, sub.ConfirmToken)
-	if err := uc.emailSender.SendConfirmation(ctx, emailAddr, notifierdomain.ConfirmData{
-		Repo:       repoName,
-		ConfirmURL: confirmURL,
-	}); err != nil {
+	if err := uc.emailSender.SendConfirmation(ctx, emailAddr, repoName, confirmURL); err != nil {
 		_ = uc.subs.Delete(ctx, sub.ID)
 		return fmt.Errorf("send confirmation email: %w", err)
 	}
