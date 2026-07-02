@@ -67,7 +67,16 @@ func run() error {
 		}
 	}()
 
-	router := newRouter(ginMode)
+	consumerAlive := func() bool {
+		select {
+		case <-consumerDone:
+			return false
+		default:
+			return true
+		}
+	}
+
+	router := newRouter(ginMode, consumerAlive)
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -86,9 +95,18 @@ func run() error {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	slog.Info("notifier: shutting down gracefully")
+	// Either a signal or the consumer dying should trigger shutdown. A silent
+	// consumer with a live HTTP server is worse than a crash: the orchestrator
+	// keeps the pod around because /health used to lie about it.
+	var runErr error
+	select {
+	case <-quit:
+		slog.Info("notifier: shutting down gracefully")
+	case <-consumerDone:
+		runErr = errors.New("notifier: consumer exited unexpectedly")
+		slog.Error("notifier: consumer exited unexpectedly, shutting down")
+	}
 	cancelConsumer()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -107,7 +125,7 @@ func run() error {
 	}
 
 	slog.Info("notifier: stopped")
-	return nil
+	return runErr
 }
 
 func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.Consumer, error) {
@@ -127,7 +145,12 @@ func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.
 
 // newRouter wires only operational endpoints: /health for compose probes and
 // /metrics for Prometheus. Notification delivery is broker-only.
-func newRouter(ginMode string) *gin.Engine {
+//
+// consumerAlive lets /health report the true worker status: if the RabbitMQ
+// consumer goroutine has exited, the process is on its way down and probes
+// must fail so the orchestrator restarts the pod instead of keeping a silent
+// notifier alive.
+func newRouter(ginMode string, consumerAlive func() bool) *gin.Engine {
 	gin.SetMode(ginMode)
 
 	r := gin.New()
@@ -137,6 +160,10 @@ func newRouter(ginMode string) *gin.Engine {
 	r.Use(middleware.Prometheus())
 
 	r.GET("/health", func(c *gin.Context) {
+		if !consumerAlive() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "consumer stopped"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
