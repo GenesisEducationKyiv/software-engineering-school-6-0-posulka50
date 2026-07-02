@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -23,51 +24,114 @@ type Sender interface {
 // Consumer subscribes to the deliveries queue and dispatches messages to the
 // underlying Sender. Permanent errors nack(requeue=false); a future commit
 // can route those into a dead-letter queue.
+//
+// Run drives a supervisor loop: when the connection or delivery channel
+// closes unexpectedly, the consumer re-dials with exponential backoff and
+// resumes consuming. Graceful shutdown is triggered by canceling ctx.
 type Consumer struct {
-	conn   *amqp.Connection
-	ch     *amqp.Channel
+	url    string
 	sender Sender
 	tag    string
+
+	conn *amqp.Connection
+	ch   *amqp.Channel
 }
 
 const consumerPrefetch = 8
 
+var errSessionEnded = errors.New("rabbitmq consumer session ended")
+
 func NewConsumer(amqpURL string, sender Sender) (*Consumer, error) {
-	conn, err := amqp.Dial(amqpURL)
+	c := &Consumer{url: amqpURL, sender: sender, tag: "notifier"}
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *Consumer) dial() error {
+	conn, err := amqp.Dial(c.url)
 	if err != nil {
-		return nil, fmt.Errorf("dial rabbitmq: %w", err)
+		return fmt.Errorf("dial rabbitmq: %w", err)
 	}
 	ch, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("open channel: %w", err)
+		return fmt.Errorf("open channel: %w", err)
 	}
 	if err := Declare(ch); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
-		return nil, err
+		return err
 	}
 	if err := ch.Qos(consumerPrefetch, 0, false); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
-		return nil, fmt.Errorf("set qos: %w", err)
+		return fmt.Errorf("set qos: %w", err)
 	}
-	return &Consumer{conn: conn, ch: ch, sender: sender, tag: "notifier"}, nil
+	c.conn = conn
+	c.ch = ch
+	return nil
+}
+
+func (c *Consumer) closeSession() {
+	if c.ch != nil {
+		_ = c.ch.Close()
+		c.ch = nil
+	}
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
 }
 
 func (c *Consumer) Close() error {
-	chErr := c.ch.Close()
-	connErr := c.conn.Close()
-	if chErr != nil {
-		return chErr
-	}
-	return connErr
+	c.closeSession()
+	return nil
 }
 
-// Run starts consuming and blocks until ctx is canceled or the delivery
-// channel closes. Cancellation triggers a basic.cancel so RabbitMQ stops
-// pushing new messages; in-flight handlers finish first.
+// Run consumes messages until ctx is canceled. On connection loss it
+// re-dials with exponential backoff instead of giving up.
 func (c *Consumer) Run(ctx context.Context) error {
+	backoff := initialReconnectBackoff
+	for {
+		if ctx.Err() != nil {
+			c.closeSession()
+			return nil
+		}
+		if c.ch == nil {
+			for {
+				if ctx.Err() != nil {
+					return nil
+				}
+				if err := c.dial(); err == nil {
+					slog.Info("rabbitmq: consumer reconnected")
+					backoff = initialReconnectBackoff
+					break
+				} else {
+					slog.Warn("rabbitmq: consumer reconnect failed", "error", err, "retry_in", backoff)
+					select {
+					case <-ctx.Done():
+						return nil
+					case <-time.After(backoff):
+					}
+					backoff = nextBackoff(backoff)
+				}
+			}
+		}
+
+		err := c.runSession(ctx)
+		if ctx.Err() != nil {
+			c.closeSession()
+			return nil
+		}
+		slog.Warn("rabbitmq: consumer session ended, reconnecting", "error", err)
+		c.closeSession()
+	}
+}
+
+func (c *Consumer) runSession(ctx context.Context) error {
+	closeCh := c.conn.NotifyClose(make(chan *amqp.Error, 1))
 	deliveries, err := c.ch.Consume(
 		QueueDeliveries,
 		c.tag,
@@ -91,10 +155,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 			}
 			slog.Info("rabbitmq: consumer stopped")
 			return nil
+		case amqErr := <-closeCh:
+			return fmt.Errorf("%w: %v", errSessionEnded, amqErr)
 		case d, ok := <-deliveries:
 			if !ok {
-				slog.Warn("rabbitmq: deliveries channel closed")
-				return nil
+				return fmt.Errorf("%w: deliveries channel closed", errSessionEnded)
 			}
 			c.handle(ctx, d)
 		}
