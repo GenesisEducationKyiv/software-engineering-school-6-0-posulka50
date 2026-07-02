@@ -84,7 +84,7 @@ var (
 	// RabbitMQ publisher metrics
 	RabbitMQMessagesPublishedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "rabbitmq_messages_published_total",
-		Help: "Total messages published to RabbitMQ by routing key and status.",
+		Help: "Total messages published to RabbitMQ by routing key and status (ok, nack, unroutable, error).",
 	}, []string{"routing_key", labelStatus})
 
 	RabbitMQPublishDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
