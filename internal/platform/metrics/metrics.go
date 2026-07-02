@@ -80,4 +80,28 @@ var (
 		Name: "releases_detected_total",
 		Help: "Total new releases detected across all tracked repositories.",
 	})
+
+	// RabbitMQ publisher metrics
+	RabbitMQMessagesPublishedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "rabbitmq_messages_published_total",
+		Help: "Total messages published to RabbitMQ by routing key and status.",
+	}, []string{"routing_key", labelStatus})
+
+	RabbitMQPublishDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "rabbitmq_publish_duration_seconds",
+		Help:    "Duration of a RabbitMQ publish call in seconds.",
+		Buckets: defaultLatencyBuckets,
+	}, []string{"routing_key"})
+
+	// RabbitMQ consumer metrics
+	RabbitMQMessagesConsumedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "rabbitmq_messages_consumed_total",
+		Help: "Total messages consumed from RabbitMQ by routing key and delivery result (ack, nack, unknown).",
+	}, []string{"routing_key", "result"})
+
+	RabbitMQMessageProcessingDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "rabbitmq_message_processing_duration_seconds",
+		Help:    "Duration of RabbitMQ message handling in seconds.",
+		Buckets: defaultLatencyBuckets,
+	}, []string{"routing_key"})
 )

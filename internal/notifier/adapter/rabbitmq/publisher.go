@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/posul/github-notifier/internal/notifier/domain"
+	"github.com/posul/github-notifier/internal/platform/metrics"
 )
 
 // Publisher writes notification messages to the notifications exchange. It
@@ -68,9 +70,12 @@ func (p *Publisher) SendReleaseNotification(ctx context.Context, to string, data
 func (p *Publisher) publish(ctx context.Context, routingKey string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
+		metrics.RabbitMQMessagesPublishedTotal.WithLabelValues(routingKey, "error").Inc()
 		return fmt.Errorf("marshal %s: %w", routingKey, err)
 	}
-	if err := p.ch.PublishWithContext(
+
+	start := time.Now()
+	pubErr := p.ch.PublishWithContext(
 		ctx,
 		ExchangeNotifications,
 		routingKey,
@@ -81,8 +86,13 @@ func (p *Publisher) publish(ctx context.Context, routingKey string, payload any)
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
-	); err != nil {
-		return fmt.Errorf("publish %s: %w", routingKey, err)
+	)
+	metrics.RabbitMQPublishDuration.WithLabelValues(routingKey).Observe(time.Since(start).Seconds())
+
+	if pubErr != nil {
+		metrics.RabbitMQMessagesPublishedTotal.WithLabelValues(routingKey, "error").Inc()
+		return fmt.Errorf("publish %s: %w", routingKey, pubErr)
 	}
+	metrics.RabbitMQMessagesPublishedTotal.WithLabelValues(routingKey, "ok").Inc()
 	return nil
 }
