@@ -29,6 +29,7 @@ import (
 	releaseapp "github.com/posul/github-notifier/internal/release/app"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
 )
@@ -73,7 +74,7 @@ func run() error {
 
 	svc := setupServices(dbPool, redisClient, publisher, cfg)
 
-	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
+	repliesConsumer, err := subscriptionrabbitmq.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
 	if err != nil {
 		return fmt.Errorf("connect saga replies consumer: %w", err)
 	}

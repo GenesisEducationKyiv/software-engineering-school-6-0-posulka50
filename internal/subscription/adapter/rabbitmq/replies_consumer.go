@@ -1,4 +1,8 @@
-package saga
+// Package rabbitmq is the subscription service's AMQP-side adapter: it turns
+// Subscribe-saga reply events into calls on the orchestrator port. It lives
+// here (adapter layer) rather than in internal/subscription/saga so the saga
+// package stays free of transport imports.
+package rabbitmq
 
 import (
 	"context"
@@ -8,12 +12,13 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
+	broker "github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 )
 
-// replyHandler is the orchestrator surface used by the reply consumer.
-// Defined locally so the consumer can be tested with a fake.
-type replyHandler interface {
+// ReplyHandler is the orchestrator surface this adapter drives. Satisfied by
+// *saga.Orchestrator via structural typing; declared here so the adapter owns
+// the port it depends on.
+type ReplyHandler interface {
 	HandleSent(ctx context.Context, sagaID string) error
 	HandleFailed(ctx context.Context, sagaID, reason string) error
 }
@@ -25,13 +30,13 @@ type replyHandler interface {
 type RepliesConsumer struct {
 	conn    *amqp.Connection
 	ch      *amqp.Channel
-	handler replyHandler
+	handler ReplyHandler
 	tag     string
 }
 
 const repliesPrefetch = 8
 
-func NewRepliesConsumer(amqpURL string, handler replyHandler) (*RepliesConsumer, error) {
+func NewRepliesConsumer(amqpURL string, handler ReplyHandler) (*RepliesConsumer, error) {
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
 		return nil, fmt.Errorf("dial rabbitmq: %w", err)
@@ -41,7 +46,7 @@ func NewRepliesConsumer(amqpURL string, handler replyHandler) (*RepliesConsumer,
 		_ = conn.Close()
 		return nil, fmt.Errorf("open channel: %w", err)
 	}
-	if err := rabbitmq.Declare(ch); err != nil {
+	if err := broker.Declare(ch); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
 		return nil, err
@@ -67,14 +72,14 @@ func (c *RepliesConsumer) Close() error {
 // channel closes.
 func (c *RepliesConsumer) Run(ctx context.Context) error {
 	deliveries, err := c.ch.Consume(
-		rabbitmq.QueueSagaEvents,
+		broker.QueueSagaEvents,
 		c.tag,
 		false, false, false, false, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("start consume saga events: %w", err)
 	}
-	slog.Info("saga: replies consumer started", "queue", rabbitmq.QueueSagaEvents, "prefetch", repliesPrefetch)
+	slog.Info("saga: replies consumer started", "queue", broker.QueueSagaEvents, "prefetch", repliesPrefetch)
 
 	for {
 		select {
@@ -96,8 +101,8 @@ func (c *RepliesConsumer) Run(ctx context.Context) error {
 
 func (c *RepliesConsumer) handle(ctx context.Context, d amqp.Delivery) {
 	switch d.RoutingKey {
-	case rabbitmq.RoutingKeyEventConfirmationSent:
-		var ev rabbitmq.ConfirmationSentEvent
+	case broker.RoutingKeyEventConfirmationSent:
+		var ev broker.ConfirmationSentEvent
 		if err := json.Unmarshal(d.Body, &ev); err != nil {
 			slog.Error("saga: unmarshal confirmation_sent", "error", err)
 			_ = d.Nack(false, false)
@@ -111,8 +116,8 @@ func (c *RepliesConsumer) handle(ctx context.Context, d amqp.Delivery) {
 		}
 		_ = d.Ack(false)
 
-	case rabbitmq.RoutingKeyEventConfirmationFailed:
-		var ev rabbitmq.ConfirmationFailedEvent
+	case broker.RoutingKeyEventConfirmationFailed:
+		var ev broker.ConfirmationFailedEvent
 		if err := json.Unmarshal(d.Body, &ev); err != nil {
 			slog.Error("saga: unmarshal confirmation_failed", "error", err)
 			_ = d.Nack(false, false)
