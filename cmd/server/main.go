@@ -109,19 +109,7 @@ func run() error {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	// A silent replies consumer with a live HTTP server is worse than a
-	// crash: /health stays green while new subscriptions accumulate as
-	// pending sagas that eventually time out. Treat unexpected exit of the
-	// consumer goroutine as fatal so the orchestrator restarts the process.
-	select {
-	case <-quit:
-		slog.Info("shutting down gracefully")
-	case <-repliesDone:
-		slog.Error("saga replies consumer exited unexpectedly, shutting down")
-	}
+	waitForShutdown(repliesDone)
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -138,6 +126,22 @@ func run() error {
 
 	slog.Info("server stopped")
 	return nil
+}
+
+// waitForShutdown blocks until either SIGINT/SIGTERM arrives or the saga
+// replies consumer goroutine exits. A silent consumer with a live HTTP
+// server is worse than a crash: /health stays green while new subscriptions
+// pile up as pending sagas that eventually time out. Surface consumer death
+// as the shutdown trigger so the orchestrator restarts the process.
+func waitForShutdown(repliesDone <-chan struct{}) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-quit:
+		slog.Info("shutting down gracefully")
+	case <-repliesDone:
+		slog.Error("saga replies consumer exited unexpectedly, shutting down")
+	}
 }
 
 func initDB(databaseURL string) (*pgxpool.Pool, error) {
