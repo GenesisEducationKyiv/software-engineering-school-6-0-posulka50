@@ -107,16 +107,22 @@ func (o *Orchestrator) HandleFailed(ctx context.Context, sagaID, reason string) 
 		return nil
 	}
 
+	// Delete first, then mark compensated. If Delete fails and this method
+	// returns an error, the broker redelivers the reply and the saga is still
+	// pending, so the whole compensation runs again — a stuck subscription
+	// row cannot outlive the delivery. Delete already treats ErrNotFound as
+	// success, so a retry after a partial success is a safe no-op.
+	if err := o.subs.Delete(ctx, s.SubscriptionID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("compensate delete subscription: %w", err)
+	}
+
 	if err := o.sagas.MarkCompensated(ctx, sagaID, reason); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			// Raced with another worker; the winner will do the delete.
+			// Raced with another worker; the winner already flipped the state
+			// (and, thanks to the ordering above, already ran the delete).
 			return nil
 		}
 		return fmt.Errorf("mark saga compensated: %w", err)
-	}
-
-	if err := o.subs.Delete(ctx, s.SubscriptionID); err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("compensate delete subscription: %w", err)
 	}
 
 	slog.InfoContext(ctx, "saga: compensated", "saga_id", sagaID, "subscription_id", s.SubscriptionID, "reason", reason)

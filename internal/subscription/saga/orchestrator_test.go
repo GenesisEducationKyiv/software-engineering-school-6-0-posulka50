@@ -234,6 +234,39 @@ func TestHandleFailed_AlreadyCompleted_NoOp(t *testing.T) {
 	}
 }
 
+func TestHandleFailed_DeleteFails_RetrySucceeds(t *testing.T) {
+	pub := &fakePublisher{}
+	sagas := newFakeSagaStore()
+	subs := &fakeSubStore{deleteErr: errors.New("db blip")}
+	o := saga.New(pub, sagas, subs)
+	sub := newSubscription()
+	sagaID, _ := o.Start(context.Background(), sub, "url")
+
+	// First delivery: Delete blows up. The orchestrator must NOT flip the
+	// saga to compensated — otherwise the redelivered event would short-circuit
+	// on the state guard and the subscription would stay orphaned.
+	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err == nil {
+		t.Fatal("expected error when subscription delete fails")
+	}
+	got, _ := sagas.Get(context.Background(), sagaID)
+	if got.State != domain.SagaStatePending {
+		t.Fatalf("saga must stay pending when delete fails, got %s", got.State)
+	}
+
+	// Broker redelivers; the DB has recovered.
+	subs.deleteErr = nil
+	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err != nil {
+		t.Fatalf("retry HandleFailed: %v", err)
+	}
+	got, _ = sagas.Get(context.Background(), sagaID)
+	if got.State != domain.SagaStateCompensated {
+		t.Errorf("expected compensated after retry, got %s", got.State)
+	}
+	if len(subs.deleted) != 2 || subs.deleted[1] != sub.ID {
+		t.Errorf("expected retried delete of %q, got %v", sub.ID, subs.deleted)
+	}
+}
+
 func TestHandleFailed_UnknownSaga_NoError(t *testing.T) {
 	o := saga.New(&fakePublisher{}, newFakeSagaStore(), &fakeSubStore{})
 	if err := o.HandleFailed(context.Background(), "ghost-id", "x"); err != nil {
