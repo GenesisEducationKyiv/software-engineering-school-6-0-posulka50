@@ -56,6 +56,13 @@ const (
 	resultAck     = "ack"
 	resultNack    = "nack"
 	resultUnknown = "unknown"
+
+	// Retry envelope for publishing saga reply events. The email side effect
+	// has already happened by the time we get here, so a lost reply would
+	// cause the sweeper to falsely compensate a successful subscription.
+	// Total wait ~3.1s across four backoffs is worth trading for that.
+	replyPublishAttempts       = 5
+	replyPublishInitialBackoff = 200 * time.Millisecond
 )
 
 var errSessionEnded = errors.New("rabbitmq consumer session ended")
@@ -271,19 +278,28 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		// Publish a reply event reflecting the outcome, then ack. The saga
 		// orchestrator owns retry/timeout; redelivering the command would
 		// produce duplicate emails since there is no idempotency key on the
-		// Resend side.
+		// Resend side. The reply publish is retried with backoff because a
+		// lost success reply eventually looks to the user like a failed
+		// subscription (sweeper deletes the row) even though the email was
+		// delivered.
 		var replyErr error
 		if sendErr == nil {
-			replyErr = c.replies.PublishConfirmationSent(ctx, msg.SagaID)
+			replyErr = publishReplyWithRetry(ctx, func(ctx context.Context) error {
+				return c.replies.PublishConfirmationSent(ctx, msg.SagaID)
+			})
 			slog.Info("rabbitmq: confirmation sent", "saga_id", msg.SagaID, "to", msg.To, "repo", msg.Repo)
 		} else {
 			slog.Error("rabbitmq: send confirmation failed", "saga_id", msg.SagaID, "to", msg.To, "repo", msg.Repo, "error", sendErr)
-			replyErr = c.replies.PublishConfirmationFailed(ctx, msg.SagaID, sendErr.Error())
+			replyErr = publishReplyWithRetry(ctx, func(ctx context.Context) error {
+				return c.replies.PublishConfirmationFailed(ctx, msg.SagaID, sendErr.Error())
+			})
 		}
 		if replyErr != nil {
-			// Reply lost in transit — saga will be compensated by the timeout
-			// sweeper. Still ack to avoid Resend duplication on redelivery.
-			slog.Error("rabbitmq: publish saga reply failed", "saga_id", msg.SagaID, "error", replyErr)
+			// Retries exhausted (broker down for the full window). Ack to
+			// avoid a Resend duplicate on redelivery; the timeout sweeper is
+			// the last-resort safety net for the saga.
+			slog.Error("rabbitmq: publish saga reply exhausted retries",
+				"saga_id", msg.SagaID, "to", msg.To, "send_ok", sendErr == nil, "error", replyErr)
 		}
 		_ = d.Ack(false)
 		return resultAck
@@ -316,4 +332,33 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		_ = d.Nack(false, false)
 		return resultUnknown
 	}
+}
+
+// publishReplyWithRetry keeps calling publish with exponential backoff until
+// it succeeds, ctx is canceled, or the attempt budget is exhausted. The
+// window covers a publisher reconnect (~500ms initial, backoff doubles) so a
+// brief broker flap does not translate into a phantom compensation.
+func publishReplyWithRetry(ctx context.Context, publish func(context.Context) error) error {
+	backoff := replyPublishInitialBackoff
+	var lastErr error
+	for attempt := 1; attempt <= replyPublishAttempts; attempt++ {
+		if err := publish(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if ctx.Err() != nil {
+			return lastErr
+		}
+		if attempt == replyPublishAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return lastErr
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return lastErr
 }

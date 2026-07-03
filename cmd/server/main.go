@@ -111,9 +111,17 @@ func run() error {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	slog.Info("shutting down gracefully")
+	// A silent replies consumer with a live HTTP server is worse than a
+	// crash: /health stays green while new subscriptions accumulate as
+	// pending sagas that eventually time out. Treat unexpected exit of the
+	// consumer goroutine as fatal so the orchestrator restarts the process.
+	select {
+	case <-quit:
+		slog.Info("shutting down gracefully")
+	case <-repliesDone:
+		slog.Error("saga replies consumer exited unexpectedly, shutting down")
+	}
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)

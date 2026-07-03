@@ -7,8 +7,10 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -28,49 +30,126 @@ type ReplyHandler interface {
 // and channel so the app's outbound publisher and the inbound replies live
 // on independent channels.
 type RepliesConsumer struct {
-	conn    *amqp.Connection
-	ch      *amqp.Channel
+	url     string
 	handler ReplyHandler
 	tag     string
+
+	conn *amqp.Connection
+	ch   *amqp.Channel
 }
 
-const repliesPrefetch = 8
+const (
+	repliesPrefetch = 8
+
+	initialReconnectBackoff = 500 * time.Millisecond
+	maxReconnectBackoff     = 30 * time.Second
+)
+
+var errRepliesChannelClosed = errors.New("saga replies channel closed")
 
 func NewRepliesConsumer(amqpURL string, handler ReplyHandler) (*RepliesConsumer, error) {
-	conn, err := amqp.Dial(amqpURL)
+	c := &RepliesConsumer{url: amqpURL, handler: handler, tag: "app.saga"}
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *RepliesConsumer) dial() error {
+	conn, err := amqp.Dial(c.url)
 	if err != nil {
-		return nil, fmt.Errorf("dial rabbitmq: %w", err)
+		return fmt.Errorf("dial rabbitmq: %w", err)
 	}
 	ch, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("open channel: %w", err)
+		return fmt.Errorf("open channel: %w", err)
 	}
 	if err := broker.Declare(ch); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
-		return nil, err
+		return err
 	}
 	if err := ch.Qos(repliesPrefetch, 0, false); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
-		return nil, fmt.Errorf("set qos: %w", err)
+		return fmt.Errorf("set qos: %w", err)
 	}
-	return &RepliesConsumer{conn: conn, ch: ch, handler: handler, tag: "app.saga"}, nil
+	c.conn, c.ch = conn, ch
+	return nil
+}
+
+func (c *RepliesConsumer) closeSession() {
+	if c.ch != nil {
+		_ = c.ch.Close()
+		c.ch = nil
+	}
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
 }
 
 func (c *RepliesConsumer) Close() error {
-	chErr := c.ch.Close()
-	connErr := c.conn.Close()
-	if chErr != nil {
-		return chErr
-	}
-	return connErr
+	c.closeSession()
+	return nil
 }
 
-// Run consumes saga reply events until ctx is canceled or the delivery
-// channel closes.
+// Run drives a supervisor loop: on session end (broker restart, network
+// blip, channel close) it re-dials with exponential backoff and resumes
+// consuming, instead of silently exiting and leaving the saga replies
+// unrouted while /health still reports the app as up. Returns nil only on
+// ctx cancellation.
 func (c *RepliesConsumer) Run(ctx context.Context) error {
+	backoff := initialReconnectBackoff
+	for {
+		if ctx.Err() != nil {
+			c.closeSession()
+			return nil
+		}
+		if c.ch == nil {
+			for {
+				if ctx.Err() != nil {
+					return nil
+				}
+				if err := c.dial(); err == nil {
+					slog.Info("saga: replies consumer reconnected")
+					backoff = initialReconnectBackoff
+					break
+				} else {
+					slog.Warn("saga: replies reconnect failed", "error", err, "retry_in", backoff)
+					select {
+					case <-ctx.Done():
+						return nil
+					case <-time.After(backoff):
+					}
+					backoff = nextBackoff(backoff)
+				}
+			}
+		}
+
+		err := c.runSession(ctx)
+		if ctx.Err() != nil {
+			c.closeSession()
+			return nil
+		}
+		slog.Warn("saga: replies session ended, reconnecting", "error", err)
+		c.closeSession()
+	}
+}
+
+func nextBackoff(cur time.Duration) time.Duration {
+	n := cur * 2
+	if n > maxReconnectBackoff {
+		return maxReconnectBackoff
+	}
+	return n
+}
+
+// runSession consumes deliveries until the channel closes or ctx is canceled.
+// A channel close returns errRepliesChannelClosed so the supervisor knows to
+// reconnect; ctx cancellation returns nil.
+func (c *RepliesConsumer) runSession(ctx context.Context) error {
 	deliveries, err := c.ch.Consume(
 		broker.QueueSagaEvents,
 		c.tag,
@@ -91,8 +170,7 @@ func (c *RepliesConsumer) Run(ctx context.Context) error {
 			return nil
 		case d, ok := <-deliveries:
 			if !ok {
-				slog.Warn("saga: replies channel closed")
-				return nil
+				return errRepliesChannelClosed
 			}
 			c.handle(ctx, d)
 		}
