@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/posul/github-notifier/internal/subscription/domain"
@@ -23,8 +24,15 @@ func NewSagaRepository(db *pgxpool.Pool) *SagaRepository {
 
 const sagaSelectCols = `id, subscription_id, state, last_error, started_at, completed_at`
 
-func (r *SagaRepository) Create(ctx context.Context, s *domain.Saga) error {
-	_, err := r.db.Exec(ctx,
+// pgxExecer is any pgx handle that can execute a statement — a pool, a
+// connection, or a transaction. Lets insertSagaRow run under either the
+// standalone Create path or the atomic CreateWithSaga transaction.
+type pgxExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func insertSagaRow(ctx context.Context, ex pgxExecer, s *domain.Saga) error {
+	_, err := ex.Exec(ctx,
 		`INSERT INTO subscription_sagas (id, subscription_id, state, started_at)
 		 VALUES ($1, $2, $3, $4)`,
 		s.ID, s.SubscriptionID, string(s.State), s.StartedAt,
@@ -33,6 +41,10 @@ func (r *SagaRepository) Create(ctx context.Context, s *domain.Saga) error {
 		return fmt.Errorf("create saga: %w", err)
 	}
 	return nil
+}
+
+func (r *SagaRepository) Create(ctx context.Context, s *domain.Saga) error {
+	return insertSagaRow(ctx, r.db, s)
 }
 
 func (r *SagaRepository) Get(ctx context.Context, id string) (*domain.Saga, error) {

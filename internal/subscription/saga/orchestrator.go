@@ -21,9 +21,11 @@ type commandPublisher interface {
 	SendConfirmationCommand(ctx context.Context, sagaID, to, repo, confirmURL string) error
 }
 
-// sagaStore persists Subscribe saga state.
+// sagaStore persists Subscribe saga state. The saga row itself is inserted
+// atomically alongside the subscription by the use case (see
+// subscription.CreateWithSaga); the orchestrator only transitions existing
+// rows, so Create is not part of this port.
 type sagaStore interface {
-	Create(ctx context.Context, s *domain.Saga) error
 	Get(ctx context.Context, id string) (*domain.Saga, error)
 	MarkCompleted(ctx context.Context, id string) error
 	MarkCompensated(ctx context.Context, id string, reason string) error
@@ -48,31 +50,23 @@ func New(commands commandPublisher, sagas sagaStore, subs subStore) *Orchestrato
 	return &Orchestrator{commands: commands, sagas: sagas, subs: subs}
 }
 
-// Start records a new pending saga for the given subscription and publishes
-// the SendConfirmationCommand to the notifier. If the publish fails, the
-// just-created saga row is removed so the caller sees a clean failure and
-// can roll back its own subscription insert; otherwise the caller's
-// subscription stays in place until a reply (or the timeout sweeper) drives
-// the next transition.
-func (o *Orchestrator) Start(ctx context.Context, sub *domain.Subscription, confirmURL string) (string, error) {
-	s := domain.NewSaga(sub.ID)
-	if err := o.sagas.Create(ctx, s); err != nil {
-		return "", fmt.Errorf("create saga: %w", err)
-	}
-
-	if err := o.commands.SendConfirmationCommand(ctx, s.ID, sub.Email, sub.Repo, confirmURL); err != nil {
-		// Best-effort cleanup: the saga never went live, so mark it
-		// compensated to keep the journal honest. Do not delete the
-		// subscription here — Start has not taken ownership of it yet; the
-		// caller decides what to do with its own insert.
-		if markErr := o.sagas.MarkCompensated(ctx, s.ID, "publish_failed: "+err.Error()); markErr != nil {
-			slog.ErrorContext(ctx, "saga: cleanup mark compensated failed", "saga_id", s.ID, "error", markErr)
+// Publish sends the SendConfirmationCommand for a saga row that the caller
+// has already persisted atomically with its subscription (see
+// SubscriptionRepository.CreateWithSaga). On publish failure the orchestrator
+// runs the standard compensation inline (delete subscription, mark
+// compensated); if that inline path itself errors, the saga stays pending
+// and the timeout sweeper finishes the compensation later — so a lost
+// publish never leaves an orphaned subscription behind.
+func (o *Orchestrator) Publish(ctx context.Context, sagaID string, sub *domain.Subscription, confirmURL string) error {
+	if err := o.commands.SendConfirmationCommand(ctx, sagaID, sub.Email, sub.Repo, confirmURL); err != nil {
+		reason := "publish_failed: " + err.Error()
+		if compErr := o.HandleFailed(ctx, sagaID, reason); compErr != nil {
+			slog.ErrorContext(ctx, "saga: inline compensation after publish failure did not finish", "saga_id", sagaID, "error", compErr)
 		}
-		return s.ID, fmt.Errorf("publish saga command: %w", err)
+		return fmt.Errorf("publish saga command: %w", err)
 	}
-
-	slog.InfoContext(ctx, "saga: started", "saga_id", s.ID, "subscription_id", sub.ID)
-	return s.ID, nil
+	slog.InfoContext(ctx, "saga: published", "saga_id", sagaID, "subscription_id", sub.ID)
+	return nil
 }
 
 // HandleSent transitions a pending saga to completed on the notifier's

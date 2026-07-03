@@ -110,19 +110,29 @@ func newSubscription() *domain.Subscription {
 	}
 }
 
-func TestStart_HappyPath(t *testing.T) {
+// seedPendingSaga puts a pending saga row into the fake store, mimicking what
+// SubscriptionRepository.CreateWithSaga does atomically alongside the
+// subscription insert in production.
+func seedPendingSaga(t *testing.T, sagas *fakeSagaStore, sub *domain.Subscription) string {
+	t.Helper()
+	s := domain.NewSaga(sub.ID)
+	if err := sagas.Create(context.Background(), s); err != nil {
+		t.Fatalf("seed pending saga: %v", err)
+	}
+	return s.ID
+}
+
+func TestPublish_HappyPath(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
 
 	sub := newSubscription()
-	sagaID, err := o.Start(context.Background(), sub, "https://example/confirm/x")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if sagaID == "" {
-		t.Fatal("expected non-empty saga id")
+	sagaID := seedPendingSaga(t, sagas, sub)
+
+	if err := o.Publish(context.Background(), sagaID, sub, "https://example/confirm/x"); err != nil {
+		t.Fatalf("Publish: %v", err)
 	}
 	if len(pub.calls) != 1 {
 		t.Fatalf("expected 1 publish call, got %d", len(pub.calls))
@@ -133,32 +143,33 @@ func TestStart_HappyPath(t *testing.T) {
 	}
 	got, _ := sagas.Get(context.Background(), sagaID)
 	if got.State != domain.SagaStatePending {
-		t.Errorf("expected saga pending, got %s", got.State)
+		t.Errorf("expected saga pending after publish, got %s", got.State)
 	}
 	if len(subs.deleted) != 0 {
-		t.Errorf("Start must not touch subscriptions, got deletes: %v", subs.deleted)
+		t.Errorf("Publish must not touch subscriptions on success, got deletes: %v", subs.deleted)
 	}
 }
 
-func TestStart_PublishFails_MarksCompensatedAndLeavesSubscription(t *testing.T) {
+func TestPublish_Fails_CompensatesInline(t *testing.T) {
 	pub := &fakePublisher{err: errors.New("broker down")}
 	sagas := newFakeSagaStore()
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
 
 	sub := newSubscription()
-	sagaID, err := o.Start(context.Background(), sub, "url")
-	if err == nil {
-		t.Fatal("expected error from Start when publish fails")
+	sagaID := seedPendingSaga(t, sagas, sub)
+
+	if err := o.Publish(context.Background(), sagaID, sub, "url"); err == nil {
+		t.Fatal("expected error from Publish when broker publish fails")
 	}
 	got, _ := sagas.Get(context.Background(), sagaID)
 	if got.State != domain.SagaStateCompensated {
-		t.Errorf("expected compensated, got %s", got.State)
+		t.Errorf("expected compensated after inline HandleFailed, got %s", got.State)
 	}
-	// Subscription cleanup is the caller's responsibility on Start failure
-	// (the saga never went live so the orchestrator does not own the row).
-	if len(subs.deleted) != 0 {
-		t.Errorf("Start failure must not delete subscription, got: %v", subs.deleted)
+	// Inline compensation must delete the orphaned subscription so a
+	// user retry immediately succeeds.
+	if len(subs.deleted) != 1 || subs.deleted[0] != sub.ID {
+		t.Errorf("expected subscription %q deleted inline, got %v", sub.ID, subs.deleted)
 	}
 }
 
@@ -168,7 +179,7 @@ func TestHandleSent_MarksCompleted(t *testing.T) {
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
 	sub := newSubscription()
-	sagaID, _ := o.Start(context.Background(), sub, "url")
+	sagaID := seedPendingSaga(t, sagas, sub)
 
 	if err := o.HandleSent(context.Background(), sagaID); err != nil {
 		t.Fatalf("HandleSent: %v", err)
@@ -187,7 +198,7 @@ func TestHandleSent_DuplicateEvent_NoError(t *testing.T) {
 	sagas := newFakeSagaStore()
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
-	sagaID, _ := o.Start(context.Background(), newSubscription(), "url")
+	sagaID := seedPendingSaga(t, sagas, newSubscription())
 	_ = o.HandleSent(context.Background(), sagaID)
 
 	if err := o.HandleSent(context.Background(), sagaID); err != nil {
@@ -201,7 +212,7 @@ func TestHandleFailed_CompensatesAndDeletesSubscription(t *testing.T) {
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
 	sub := newSubscription()
-	sagaID, _ := o.Start(context.Background(), sub, "url")
+	sagaID := seedPendingSaga(t, sagas, sub)
 
 	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err != nil {
 		t.Fatalf("HandleFailed: %v", err)
@@ -223,7 +234,7 @@ func TestHandleFailed_AlreadyCompleted_NoOp(t *testing.T) {
 	sagas := newFakeSagaStore()
 	subs := &fakeSubStore{}
 	o := saga.New(pub, sagas, subs)
-	sagaID, _ := o.Start(context.Background(), newSubscription(), "url")
+	sagaID := seedPendingSaga(t, sagas, newSubscription())
 	_ = o.HandleSent(context.Background(), sagaID)
 
 	if err := o.HandleFailed(context.Background(), sagaID, "late timeout"); err != nil {
@@ -240,7 +251,7 @@ func TestHandleFailed_DeleteFails_RetrySucceeds(t *testing.T) {
 	subs := &fakeSubStore{deleteErr: errors.New("db blip")}
 	o := saga.New(pub, sagas, subs)
 	sub := newSubscription()
-	sagaID, _ := o.Start(context.Background(), sub, "url")
+	sagaID := seedPendingSaga(t, sagas, sub)
 
 	// First delivery: Delete blows up. The orchestrator must NOT flip the
 	// saga to compensated — otherwise the redelivered event would short-circuit

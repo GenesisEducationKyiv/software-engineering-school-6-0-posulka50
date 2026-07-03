@@ -21,7 +21,9 @@ type subscriptionRepoStore interface {
 }
 
 type subscribeSubStore interface {
-	Create(ctx context.Context, sub *domain.Subscription) error
+	// CreateWithSaga atomically inserts the subscription and its pending saga
+	// journal row so a crash between the two cannot orphan the subscription.
+	CreateWithSaga(ctx context.Context, sub *domain.Subscription, s *domain.Saga) error
 	Delete(ctx context.Context, id string) error
 	ExistsByEmailAndRepoID(ctx context.Context, email, repoID string) (bool, error)
 }
@@ -30,19 +32,19 @@ type repoChecker interface {
 	CheckRepo(ctx context.Context, owner, repo string) error
 }
 
-// sagaStarter is the orchestrator entry point used by Subscribe. Satisfied by
-// *saga.Orchestrator via structural typing. Returning the saga ID is purely
-// informational here; the use case does not track it (the orchestrator owns
-// the lifecycle from this point on).
-type sagaStarter interface {
-	Start(ctx context.Context, sub *domain.Subscription, confirmURL string) (string, error)
+// sagaPublisher is the orchestrator entry point used by Subscribe. Satisfied
+// by *saga.Orchestrator via structural typing. The saga row is already in the
+// DB (persisted by CreateWithSaga) by the time Publish is called; Publish
+// only dispatches the command and runs inline compensation on failure.
+type sagaPublisher interface {
+	Publish(ctx context.Context, sagaID string, sub *domain.Subscription, confirmURL string) error
 }
 
 type SubscribeUseCase struct {
 	repos   subscriptionRepoStore
 	subs    subscribeSubStore
 	github  repoChecker
-	saga    sagaStarter
+	saga    sagaPublisher
 	baseURL string
 }
 
@@ -50,7 +52,7 @@ func NewSubscribeUseCase(
 	repos subscriptionRepoStore,
 	subs subscribeSubStore,
 	githubClient repoChecker,
-	saga sagaStarter,
+	saga sagaPublisher,
 	baseURL string,
 ) *SubscribeUseCase {
 	return &SubscribeUseCase{
@@ -98,9 +100,10 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 	}
 
 	sub := domain.NewSubscription(emailAddr, repoRecord.ID, repoName)
+	sagaEntity := domain.NewSaga(sub.ID)
 
 	slog.InfoContext(ctx, "subscription: creating subscription", "email", emailAddr, "repo", repoName)
-	if err := uc.subs.Create(ctx, sub); err != nil {
+	if err := uc.subs.CreateWithSaga(ctx, sub, sagaEntity); err != nil {
 		if errors.Is(err, domain.ErrAlreadyExists) {
 			return ErrAlreadyExists
 		}
@@ -108,12 +111,11 @@ func (uc *SubscribeUseCase) Subscribe(ctx context.Context, emailAddr, repoName s
 	}
 
 	confirmURL := fmt.Sprintf("%s/api/confirm/%s", uc.baseURL, sub.ConfirmToken)
-	if _, err := uc.saga.Start(ctx, sub, confirmURL); err != nil {
-		// The saga never went live (publish failed); the orchestrator already
-		// marked its journal entry compensated. The just-created subscription
-		// row has no live saga to clean it up, so we delete it here.
-		_ = uc.subs.Delete(ctx, sub.ID)
-		return fmt.Errorf("start subscribe saga: %w", err)
+	if err := uc.saga.Publish(ctx, sagaEntity.ID, sub, confirmURL); err != nil {
+		// The orchestrator has already run inline compensation on publish
+		// failure; if that failed too, the saga stays pending and the
+		// timeout sweeper will finish the delete.
+		return fmt.Errorf("publish subscribe saga: %w", err)
 	}
 
 	metrics.SubscriptionsCreatedTotal.Inc()

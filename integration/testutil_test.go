@@ -28,6 +28,7 @@ import (
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
 )
@@ -240,7 +241,7 @@ func newTestServer(tb testing.TB) *testServer {
 	orchestrator := saga.New(publisher, sagaRepo, subRepo)
 
 	// App side: consumes saga reply events, drives orchestrator transitions.
-	replies, err := saga.NewRepliesConsumer(sharedAMQP, orchestrator)
+	replies, err := subscriptionrabbitmq.NewRepliesConsumer(sharedAMQP, orchestrator)
 	if err != nil {
 		tb.Fatalf("create replies consumer: %v", err)
 	}
