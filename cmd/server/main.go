@@ -20,8 +20,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/posul/github-notifier/internal/notifier/adapter/httpclient"
+	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/platform/config"
+	"github.com/posul/github-notifier/internal/platform/logctx"
 	"github.com/posul/github-notifier/internal/platform/middleware"
 	githubclient "github.com/posul/github-notifier/internal/release/adapter/github"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
@@ -32,7 +33,7 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(logctx.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	if err := run(); err != nil {
 		slog.Error("startup failed", "error", err)
 		os.Exit(1)
@@ -59,7 +60,17 @@ func run() error {
 
 	redisClient := initRedis(cfg.RedisURL)
 
-	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, cfg)
+	publisher, err := dialPublisherWithRetry(cfg.BrokerURL)
+	if err != nil {
+		return fmt.Errorf("connect rabbitmq: %w", err)
+	}
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			slog.Warn("rabbitmq publisher close error", "error", err)
+		}
+	}()
+
+	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, publisher, cfg)
 
 	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
 
@@ -150,6 +161,7 @@ func newRouter(cfg *config.Config, h *subscriptionhttp.Handler) *gin.Engine {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(middleware.RequestID())
 	router.Use(middleware.Logger())
 	router.Use(middleware.Prometheus())
 
@@ -187,7 +199,7 @@ func newServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.Config) (
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) (
 	*subscriptionapp.SubscribeUseCase,
 	*subscriptionapp.ConfirmUseCase,
 	*subscriptionapp.UnsubscribeUseCase,
@@ -198,7 +210,6 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
-	emailSender := httpclient.NewClient(cfg.NotifierURL, cfg.NotifierAuthToken)
 
 	var checker githubclient.RepoChecker = repoCheckerClient
 	var fetcher githubclient.ReleaseFetcher = releaseFetcherClient
@@ -207,7 +218,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, emailSender, cfg.BaseURL)
+	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, publisher, cfg.BaseURL)
 	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscribeUC := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	getSubsUC := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
@@ -217,9 +228,31 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg *config.
 		slog.Warn("invalid SCAN_INTERVAL, defaulting to 1h", "value", cfg.ScanInterval)
 		scanInterval = time.Hour
 	}
-	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, emailSender, cfg.BaseURL, scanInterval)
+	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, publisher, cfg.BaseURL, scanInterval)
 
 	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
+}
+
+const (
+	brokerDialAttempts = 15
+	brokerDialDelay    = 2 * time.Second
+)
+
+// dialPublisherWithRetry tolerates the broker still booting alongside the
+// server in docker-compose: it retries the initial dial before failing.
+func dialPublisherWithRetry(brokerURL string) (*rabbitmq.Publisher, error) {
+	var lastErr error
+	for attempt := 1; attempt <= brokerDialAttempts; attempt++ {
+		p, err := rabbitmq.NewPublisher(brokerURL)
+		if err == nil {
+			slog.Info("rabbitmq publisher connected", "attempt", attempt)
+			return p, nil
+		}
+		lastErr = err
+		slog.Warn("rabbitmq publisher dial failed, retrying", "attempt", attempt, "error", err)
+		time.Sleep(brokerDialDelay)
+	}
+	return nil, fmt.Errorf("after %d attempts: %w", brokerDialAttempts, lastErr)
 }
 
 func runMigrations(databaseURL string) error {

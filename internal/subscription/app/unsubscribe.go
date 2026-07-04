@@ -36,6 +36,6 @@ func (uc *UnsubscribeUseCase) Unsubscribe(ctx context.Context, token string) err
 		return fmt.Errorf("delete subscription: %w", err)
 	}
 	metrics.SubscriptionsRemovedTotal.Inc()
-	slog.Info("subscription: deleted", "id", sub.ID, "email", sub.Email)
+	slog.InfoContext(ctx, "subscription: deleted", "id", sub.ID, "email", sub.Email)
 	return nil
 }

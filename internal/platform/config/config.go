@@ -12,8 +12,7 @@ type Config struct {
 
 	GitHubToken string
 
-	NotifierURL       string
-	NotifierAuthToken string
+	BrokerURL string
 
 	BaseURL      string
 	ScanInterval string
@@ -22,16 +21,15 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		Port:              getEnv("PORT", "8080"),
-		APIKey:            os.Getenv("API_KEY"),
-		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/github_notifier?sslmode=disable"),
-		RedisURL:          getEnv("REDIS_URL", "redis://localhost:6379"),
-		GitHubToken:       os.Getenv("GITHUB_TOKEN"),
-		NotifierURL:       getEnv("NOTIFIER_URL", "http://localhost:8081"),
-		NotifierAuthToken: os.Getenv("NOTIFIER_INTERNAL_TOKEN"),
-		BaseURL:           getEnv("BASE_URL", "http://localhost:8080"),
-		ScanInterval:      getEnv("SCAN_INTERVAL", "1h"),
-		GinMode:           getEnv("GIN_MODE", "release"),
+		Port:         getEnv("PORT", "8080"),
+		APIKey:       os.Getenv("API_KEY"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/github_notifier?sslmode=disable"),
+		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
+		GitHubToken:  os.Getenv("GITHUB_TOKEN"),
+		BrokerURL:    getEnv("BROKER_URL", "amqp://guest:guest@localhost:5672/"),
+		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
+		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
+		GinMode:      getEnv("GIN_MODE", "release"),
 	}
 }
 

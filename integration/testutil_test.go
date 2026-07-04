@@ -10,17 +10,20 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
+	amqp "github.com/rabbitmq/amqp091-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	tcrabbitmq "github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 
-	notifierhttp "github.com/posul/github-notifier/internal/notifier/adapter/http"
-	"github.com/posul/github-notifier/internal/notifier/adapter/httpclient"
+	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	notifierdomain "github.com/posul/github-notifier/internal/notifier/domain"
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
@@ -28,7 +31,10 @@ import (
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 )
 
-var sharedPool *pgxpool.Pool
+var (
+	sharedPool *pgxpool.Pool
+	sharedAMQP string
+)
 
 func TestMain(m *testing.M) {
 	os.Exit(testMain(m))
@@ -37,7 +43,7 @@ func TestMain(m *testing.M) {
 func testMain(m *testing.M) int {
 	ctx := context.Background()
 
-	c, err := tcpostgres.Run(ctx,
+	pg, err := tcpostgres.Run(ctx,
 		"postgres:16-alpine",
 		tcpostgres.WithDatabase("testdb"),
 		tcpostgres.WithUsername("test"),
@@ -45,12 +51,12 @@ func testMain(m *testing.M) int {
 		tcpostgres.BasicWaitStrategies(),
 	)
 	if err != nil {
-		log.Printf("startPostgres: %v", err)
+		log.Printf("start postgres: %v", err)
 		return 1
 	}
-	defer c.Terminate(ctx)
+	defer pg.Terminate(ctx)
 
-	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
+	dsn, err := pg.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		log.Printf("get connection string: %v", err)
 		return 1
@@ -65,6 +71,20 @@ func testMain(m *testing.M) int {
 	}
 	defer pool.Close()
 	sharedPool = pool
+
+	rmq, err := tcrabbitmq.Run(ctx, "rabbitmq:3.13-management-alpine")
+	if err != nil {
+		log.Printf("start rabbitmq: %v", err)
+		return 1
+	}
+	defer rmq.Terminate(ctx)
+
+	amqpURL, err := rmq.AmqpURL(ctx)
+	if err != nil {
+		log.Printf("get rabbitmq url: %v", err)
+		return 1
+	}
+	sharedAMQP = amqpURL
 
 	return m.Run()
 }
@@ -99,15 +119,18 @@ type stubGitHub struct{ err error }
 
 func (s *stubGitHub) CheckRepo(_ context.Context, _, _ string) error { return s.err }
 
-// stubEmail satisfies notifier/adapter/http.Sender. It is mounted behind the
-// notifier-service HTTP handler in tests so the server-under-test exercises
-// the real HTTP transport.
+// stubEmail satisfies rabbitmq.Sender. It is driven by the broker consumer in
+// each test, so callers must use waitForConfirmations to observe deliveries
+// rather than reading the slice directly (Publish -> consume is async).
 type stubEmail struct {
+	mu            sync.Mutex
 	confirmations []string
 	err           error
 }
 
 func (s *stubEmail) SendConfirmation(_ context.Context, to string, _ notifierdomain.ConfirmData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.err != nil {
 		return s.err
 	}
@@ -119,6 +142,33 @@ func (s *stubEmail) SendReleaseNotification(_ context.Context, _ string, _ notif
 	return nil
 }
 
+func (s *stubEmail) setErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
+func (s *stubEmail) Confirmations() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.confirmations...)
+}
+
+func (s *stubEmail) waitForConfirmations(tb testing.TB, n int) []string {
+	tb.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got := s.Confirmations()
+		if len(got) >= n {
+			return got
+		}
+		if time.Now().After(deadline) {
+			tb.Fatalf("timeout waiting for %d confirmations, got %d", n, len(got))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 type testServer struct {
 	*httptest.Server
 	gh   *stubGitHub
@@ -126,35 +176,57 @@ type testServer struct {
 	pool *pgxpool.Pool
 }
 
-// newTestServer wires up an httptest.Server backed by the shared PostgreSQL
-// instance. A second in-process httptest.Server hosts the notifier handler so
-// the monolith reaches it over real HTTP via httpclient. Tables are truncated
-// before each test to ensure isolation.
+// newTestServer wires the subscription HTTP handler to a real publisher that
+// writes to the shared RabbitMQ container; a per-test consumer drains the
+// queue into stubEmail. Tables and queue are reset before each test for
+// isolation.
 func newTestServer(tb testing.TB) *testServer {
 	tb.Helper()
 
 	if _, err := sharedPool.Exec(context.Background(), "TRUNCATE repositories CASCADE"); err != nil {
 		tb.Fatalf("truncate: %v", err)
 	}
+	purgeQueue(tb)
 
 	gh := &stubGitHub{}
 	em := &stubEmail{}
 
+	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em)
+	if err != nil {
+		tb.Fatalf("create consumer: %v", err)
+	}
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
+		if err := consumer.Run(consumerCtx); err != nil {
+			tb.Logf("consumer run: %v", err)
+		}
+	}()
+	tb.Cleanup(func() {
+		cancelConsumer()
+		<-consumerDone
+		if err := consumer.Close(); err != nil {
+			tb.Logf("consumer close: %v", err)
+		}
+	})
+
+	publisher, err := rabbitmq.NewPublisher(sharedAMQP)
+	if err != nil {
+		tb.Fatalf("create publisher: %v", err)
+	}
+	tb.Cleanup(func() {
+		if err := publisher.Close(); err != nil {
+			tb.Logf("publisher close: %v", err)
+		}
+	})
+
 	gin.SetMode(gin.TestMode)
-
-	notifierGin := gin.New()
-	notifierH := notifierhttp.New(em)
-	notifierGin.POST("/v1/notifications/confirmation", notifierH.Confirmation)
-	notifierGin.POST("/v1/notifications/release", notifierH.Release)
-	notifierSrv := httptest.NewServer(notifierGin)
-	tb.Cleanup(notifierSrv.Close)
-
-	emailClient := httpclient.NewClient(notifierSrv.URL, "")
 
 	repoRepo := releasepostgres.NewRepoRepository(sharedPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 
-	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, emailClient, "http://test")
+	subscriber := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, gh, publisher, "http://test")
 	confirmer := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscriber := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	lister := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
@@ -172,4 +244,26 @@ func newTestServer(tb testing.TB) *testServer {
 	tb.Cleanup(srv.Close)
 
 	return &testServer{Server: srv, gh: gh, em: em, pool: sharedPool}
+}
+
+// purgeQueue drops any messages a previous test left in the shared queue so
+// the new consumer cannot pick up stale work.
+func purgeQueue(tb testing.TB) {
+	tb.Helper()
+	conn, err := amqp.Dial(sharedAMQP)
+	if err != nil {
+		tb.Fatalf("dial rabbitmq for purge: %v", err)
+	}
+	defer conn.Close()
+	ch, err := conn.Channel()
+	if err != nil {
+		tb.Fatalf("open channel for purge: %v", err)
+	}
+	defer ch.Close()
+	if err := rabbitmq.Declare(ch); err != nil {
+		tb.Fatalf("declare topology for purge: %v", err)
+	}
+	if _, err := ch.QueuePurge(rabbitmq.QueueDeliveries, false); err != nil {
+		tb.Fatalf("purge queue: %v", err)
+	}
 }

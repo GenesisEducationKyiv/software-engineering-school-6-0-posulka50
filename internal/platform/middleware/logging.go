@@ -11,12 +11,24 @@ func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		slog.Info("http",
-			"method", c.Request.Method,
-			"path", c.FullPath(),
-			"status", c.Writer.Status(),
-			"ms", time.Since(start).Milliseconds(),
-			"ip", c.ClientIP(),
+		status := c.Writer.Status()
+		slog.LogAttrs(c.Request.Context(), levelForStatus(status), "http",
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.FullPath()),
+			slog.Int("status", status),
+			slog.Int64("ms", time.Since(start).Milliseconds()),
+			slog.String("ip", c.ClientIP()),
 		)
+	}
+}
+
+func levelForStatus(status int) slog.Level {
+	switch {
+	case status >= 500:
+		return slog.LevelError
+	case status >= 400:
+		return slog.LevelWarn
+	default:
+		return slog.LevelInfo
 	}
 }

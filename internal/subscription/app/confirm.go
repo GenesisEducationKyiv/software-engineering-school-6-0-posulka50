@@ -36,6 +36,6 @@ func (uc *ConfirmUseCase) Confirm(ctx context.Context, token string) error {
 		return fmt.Errorf("confirm subscription: %w", err)
 	}
 	metrics.SubscriptionsConfirmedTotal.Inc()
-	slog.Info("subscription: confirmed", "id", sub.ID)
+	slog.InfoContext(ctx, "subscription: confirmed", "id", sub.ID)
 	return nil
 }

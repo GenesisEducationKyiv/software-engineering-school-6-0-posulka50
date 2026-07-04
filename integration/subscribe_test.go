@@ -42,7 +42,8 @@ func TestSubscribe_Success(t *testing.T) {
 	body := jsonBody(t, resp)
 	assert.Contains(t, body["message"], "Subscription successful")
 
-	assert.Equal(t, []string{"user@example.com"}, srv.em.confirmations)
+	got := srv.em.waitForConfirmations(t, 1)
+	assert.Equal(t, []string{"user@example.com"}, got)
 }
 
 func TestSubscribe_InvalidEmail(t *testing.T) {
@@ -52,7 +53,7 @@ func TestSubscribe_InvalidEmail(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.Empty(t, srv.em.confirmations)
+	assert.Empty(t, srv.em.Confirmations())
 }
 
 func TestSubscribe_InvalidRepoFormat(t *testing.T) {
@@ -77,7 +78,7 @@ func TestSubscribe_InvalidRepoFormat(t *testing.T) {
 			defer resp.Body.Close()
 
 			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-			assert.Empty(t, srv.em.confirmations)
+			assert.Empty(t, srv.em.Confirmations())
 		})
 	}
 }
@@ -90,7 +91,7 @@ func TestSubscribe_RepoNotFound(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-	assert.Empty(t, srv.em.confirmations)
+	assert.Empty(t, srv.em.Confirmations())
 }
 
 func TestSubscribe_RateLimit(t *testing.T) {
@@ -101,7 +102,7 @@ func TestSubscribe_RateLimit(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
-	assert.Empty(t, srv.em.confirmations)
+	assert.Empty(t, srv.em.Confirmations())
 }
 
 func TestSubscribe_Duplicate(t *testing.T) {
@@ -110,29 +111,35 @@ func TestSubscribe_Duplicate(t *testing.T) {
 	resp1 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	resp1.Body.Close()
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
+	srv.em.waitForConfirmations(t, 1)
 
 	resp2 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp2.Body.Close()
 
 	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
-	assert.Len(t, srv.em.confirmations, 1)
+	assert.Len(t, srv.em.Confirmations(), 1)
 }
 
-func TestSubscribe_EmailSenderFails_RollsBack(t *testing.T) {
+// TestSubscribe_SenderFailsAsync_SubscriptionPersists documents the new
+// broker-based semantics: the subscribe endpoint succeeds as soon as the
+// publish to RabbitMQ goes through. If downstream email delivery later fails
+// the subscription stays in the DB (no rollback), so a duplicate attempt
+// returns 409.
+func TestSubscribe_SenderFailsAsync_SubscriptionPersists(t *testing.T) {
 	srv := newTestServer(t)
-	srv.em.err = errors.New("resend unavailable")
+	srv.em.setErr(errors.New("resend unavailable"))
 
 	resp := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	// Confirm via DB that the row persists (consumer nacks without rollback).
+	require.Equal(t, 1, subscriptionCount(t, srv, "user@example.com"))
 
-	// Subscription must have been deleted (rollback): a second attempt should succeed
-	// once we restore the email sender.
-	srv.em.err = nil
+	srv.em.setErr(nil)
 	resp2 := post(t, srv, `{"email":"user@example.com","repo":"golang/go"}`)
 	defer resp2.Body.Close()
-	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
 }
 
 func TestSubscribe_MissingFields(t *testing.T) {

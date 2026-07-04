@@ -15,14 +15,14 @@ services:
       SCAN_INTERVAL: ${SCAN_INTERVAL:-1h}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       API_KEY: ${API_KEY:-}
-      NOTIFIER_URL: http://notifier:8081
+      BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       GIN_MODE: release
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-      notifier:
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
 
@@ -31,14 +31,16 @@ services:
       context: .
       args:
         TARGET: notifier
-    ports:
-      - "8081:8081"
     environment:
       PORT: "8081"
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       RESEND_API_URL: ${RESEND_API_URL:-https://api.resend.com/emails}
+      BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       GIN_MODE: release
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
       interval: 5s
@@ -70,6 +72,19 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
       retries: 10
 
   elasticsearch:
@@ -140,3 +155,4 @@ volumes:
   es_data:
   prometheus_data:
   grafana_data:
+  rabbitmq_data:

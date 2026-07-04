@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,14 +15,20 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	notifierhttp "github.com/posul/github-notifier/internal/notifier/adapter/http"
+	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/notifier/adapter/resend"
 	"github.com/posul/github-notifier/internal/notifier/adapter/templates"
+	"github.com/posul/github-notifier/internal/platform/logctx"
 	"github.com/posul/github-notifier/internal/platform/middleware"
 )
 
+const (
+	brokerDialAttempts = 15
+	brokerDialDelay    = 2 * time.Second
+)
+
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(logctx.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	if err := run(); err != nil {
 		slog.Error("notifier: startup failed", "error", err)
 		os.Exit(1)
@@ -38,12 +45,38 @@ func run() error {
 	resendURL := getEnv("RESEND_API_URL", "https://api.resend.com/emails")
 	emailFrom := os.Getenv("EMAIL_FROM")
 	ginMode := getEnv("GIN_MODE", "release")
-	internalToken := os.Getenv("NOTIFIER_INTERNAL_TOKEN")
+	brokerURL := os.Getenv("BROKER_URL")
+	if brokerURL == "" {
+		return errors.New("BROKER_URL is required: notifier consumes notifications from rabbitmq")
+	}
 
 	sender := resend.NewSender(resendKey, emailFrom, resendURL, templates.NewRenderer())
-	handler := notifierhttp.New(sender)
 
-	router := newRouter(ginMode, handler, internalToken)
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+
+	consumer, err := dialConsumerWithRetry(brokerURL, sender)
+	if err != nil {
+		return fmt.Errorf("connect rabbitmq: %w", err)
+	}
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
+		if err := consumer.Run(consumerCtx); err != nil {
+			slog.Error("notifier: consumer exited with error", "error", err)
+		}
+	}()
+
+	consumerAlive := func() bool {
+		select {
+		case <-consumerDone:
+			return false
+		default:
+			return true
+		}
+	}
+
+	router := newRouter(ginMode, consumerAlive)
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -62,33 +95,75 @@ func run() error {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	slog.Info("notifier: shutting down gracefully")
+	// Either a signal or the consumer dying should trigger shutdown. A silent
+	// consumer with a live HTTP server is worse than a crash: the orchestrator
+	// keeps the pod around because /health used to lie about it.
+	var runErr error
+	select {
+	case <-quit:
+		slog.Info("notifier: shutting down gracefully")
+	case <-consumerDone:
+		runErr = errors.New("notifier: consumer exited unexpectedly")
+		slog.Error("notifier: consumer exited unexpectedly, shutting down")
+	}
+	cancelConsumer()
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("notifier: server forced to shutdown", "error", err)
 	}
+
+	select {
+	case <-consumerDone:
+	case <-shutdownCtx.Done():
+		slog.Warn("notifier: consumer did not stop in time")
+	}
+	if err := consumer.Close(); err != nil {
+		slog.Warn("notifier: consumer close error", "error", err)
+	}
+
 	slog.Info("notifier: stopped")
-	return nil
+	return runErr
 }
 
-func newRouter(ginMode string, h *notifierhttp.Handler, internalToken string) *gin.Engine {
+func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender) (*rabbitmq.Consumer, error) {
+	var lastErr error
+	for attempt := 1; attempt <= brokerDialAttempts; attempt++ {
+		c, err := rabbitmq.NewConsumer(brokerURL, sender)
+		if err == nil {
+			slog.Info("notifier: connected to rabbitmq", "attempt", attempt)
+			return c, nil
+		}
+		lastErr = err
+		slog.Warn("notifier: rabbitmq dial failed, retrying", "attempt", attempt, "error", err)
+		time.Sleep(brokerDialDelay)
+	}
+	return nil, fmt.Errorf("after %d attempts: %w", brokerDialAttempts, lastErr)
+}
+
+// newRouter wires only operational endpoints: /health for compose probes and
+// /metrics for Prometheus. Notification delivery is broker-only.
+//
+// consumerAlive lets /health report the true worker status: if the RabbitMQ
+// consumer goroutine has exited, the process is on its way down and probes
+// must fail so the orchestrator restarts the pod instead of keeping a silent
+// notifier alive.
+func newRouter(ginMode string, consumerAlive func() bool) *gin.Engine {
 	gin.SetMode(ginMode)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger())
 	r.Use(middleware.Prometheus())
 
-	v1 := r.Group("/v1/notifications", middleware.InternalAuth(internalToken))
-	{
-		v1.POST("/confirmation", h.Confirmation)
-		v1.POST("/release", h.Release)
-	}
-
 	r.GET("/health", func(c *gin.Context) {
+		if !consumerAlive() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "consumer stopped"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
