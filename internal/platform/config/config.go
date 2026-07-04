@@ -17,6 +17,14 @@ type Config struct {
 	BaseURL      string
 	ScanInterval string
 	GinMode      string
+
+	// SagaTimeout bounds how long a Subscribe saga may stay in 'pending'
+	// before the sweeper compensates it. Any reply event lost in transit
+	// (notifier crash after Resend success, broker hiccup, etc.) is caught
+	// here.
+	SagaTimeout string
+	// SagaSweepInterval is how often the sweeper scans for stuck sagas.
+	SagaSweepInterval string
 }
 
 func Load() *Config {
@@ -30,6 +38,9 @@ func Load() *Config {
 		BaseURL:      getEnv("BASE_URL", "http://localhost:8080"),
 		ScanInterval: getEnv("SCAN_INTERVAL", "1h"),
 		GinMode:      getEnv("GIN_MODE", "release"),
+
+		SagaTimeout:       getEnv("SAGA_TIMEOUT", "5m"),
+		SagaSweepInterval: getEnv("SAGA_SWEEP_INTERVAL", "30s"),
 	}
 }
 

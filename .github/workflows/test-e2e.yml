@@ -28,6 +28,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Start app stack
+        env:
+          # Pass the workflow token into docker-compose so app/notifier make
+          # authenticated GitHub requests. Anonymous 60 req/h is not enough
+          # for e2e — GitHub returns 403 with X-RateLimit-Remaining: 0 well
+          # before the suite finishes, which surfaces as 500 to the client.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: docker compose -f docker-compose.e2e.yml up -d --build --wait
 
       - name: Run E2E tests

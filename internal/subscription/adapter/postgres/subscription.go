@@ -30,7 +30,11 @@ const subFromJoin = `
 	INNER JOIN repositories r ON r.id = s.repo_id`
 
 func (r *SubscriptionRepository) Create(ctx context.Context, sub *domain.Subscription) error {
-	_, err := r.db.Exec(ctx,
+	return insertSubscriptionRow(ctx, r.db, sub)
+}
+
+func insertSubscriptionRow(ctx context.Context, ex pgxExecer, sub *domain.Subscription) error {
+	_, err := ex.Exec(ctx,
 		`INSERT INTO subscriptions (id, repo_id, email, confirmed, confirm_token, unsubscribe_token, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		sub.ID, sub.RepoID, sub.Email, sub.Confirmed,
@@ -41,6 +45,31 @@ func (r *SubscriptionRepository) Create(ctx context.Context, sub *domain.Subscri
 			return domain.ErrAlreadyExists
 		}
 		return fmt.Errorf("create subscription: %w", err)
+	}
+	return nil
+}
+
+// CreateWithSaga inserts the subscription row and its pending saga row in a
+// single transaction. A crash between the two writes would otherwise orphan
+// the subscription — no saga row exists to drive cleanup, and the sweeper
+// (which only scans pending sagas) would never see the row. With the two
+// writes joined, either both land (sweeper compensates on publish failure)
+// or neither lands (clean retry).
+func (r *SubscriptionRepository) CreateWithSaga(ctx context.Context, sub *domain.Subscription, s *domain.Saga) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := insertSubscriptionRow(ctx, tx, sub); err != nil {
+		return err
+	}
+	if err := insertSagaRow(ctx, tx, s); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit subscription+saga: %w", err)
 	}
 	return nil
 }

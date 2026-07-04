@@ -29,7 +29,9 @@ import (
 	releaseapp "github.com/posul/github-notifier/internal/release/app"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
+	"github.com/posul/github-notifier/internal/subscription/saga"
 )
 
 func main() {
@@ -70,13 +72,32 @@ func run() error {
 		}
 	}()
 
-	subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner := setupServices(dbPool, redisClient, publisher, cfg)
+	svc := setupServices(dbPool, redisClient, publisher, cfg)
 
-	router := newRouter(cfg, subscriptionhttp.New(subscribeUC, confirmUC, unsubscribeUC, getSubsUC))
+	repliesConsumer, err := subscriptionrabbitmq.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
+	if err != nil {
+		return fmt.Errorf("connect saga replies consumer: %w", err)
+	}
+	defer func() {
+		if err := repliesConsumer.Close(); err != nil {
+			slog.Warn("saga replies consumer close error", "error", err)
+		}
+	}()
+
+	router := newRouter(cfg, subscriptionhttp.New(svc.subscribe, svc.confirm, svc.unsubscribe, svc.getSubs))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go scanner.Start(ctx)
+	go svc.scanner.Start(ctx)
+	go svc.sweeper.Run(ctx)
+
+	repliesDone := make(chan struct{})
+	go func() {
+		defer close(repliesDone)
+		if err := repliesConsumer.Run(ctx); err != nil {
+			slog.Error("saga replies consumer exited with error", "error", err)
+		}
+	}()
 
 	srv := newServer(cfg.Port, router)
 
@@ -88,11 +109,7 @@ func run() error {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	slog.Info("shutting down gracefully")
+	waitForShutdown(repliesDone)
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -100,8 +117,31 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("server forced to shutdown", "error", err)
 	}
+
+	select {
+	case <-repliesDone:
+	case <-shutdownCtx.Done():
+		slog.Warn("saga replies consumer did not stop in time")
+	}
+
 	slog.Info("server stopped")
 	return nil
+}
+
+// waitForShutdown blocks until either SIGINT/SIGTERM arrives or the saga
+// replies consumer goroutine exits. A silent consumer with a live HTTP
+// server is worse than a crash: /health stays green while new subscriptions
+// pile up as pending sagas that eventually time out. Surface consumer death
+// as the shutdown trigger so the orchestrator restarts the process.
+func waitForShutdown(repliesDone <-chan struct{}) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-quit:
+		slog.Info("shutting down gracefully")
+	case <-repliesDone:
+		slog.Error("saga replies consumer exited unexpectedly, shutting down")
+	}
 }
 
 func initDB(databaseURL string) (*pgxpool.Pool, error) {
@@ -199,15 +239,20 @@ func newServer(port string, handler http.Handler) *http.Server {
 	}
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) (
-	*subscriptionapp.SubscribeUseCase,
-	*subscriptionapp.ConfirmUseCase,
-	*subscriptionapp.UnsubscribeUseCase,
-	*subscriptionapp.GetSubscriptionsUseCase,
-	*releaseapp.Scanner,
-) {
+type appServices struct {
+	subscribe    *subscriptionapp.SubscribeUseCase
+	confirm      *subscriptionapp.ConfirmUseCase
+	unsubscribe  *subscriptionapp.UnsubscribeUseCase
+	getSubs      *subscriptionapp.GetSubscriptionsUseCase
+	scanner      *releaseapp.Scanner
+	orchestrator *saga.Orchestrator
+	sweeper      *saga.TimeoutSweeper
+}
+
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) *appServices {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
+	sagaRepo := subscriptionpostgres.NewSagaRepository(dbPool)
 	repoCheckerClient := githubclient.NewRepoCheckerClient(cfg.GitHubToken)
 	releaseFetcherClient := githubclient.NewReleaseFetcherClient(cfg.GitHubToken)
 
@@ -218,7 +263,9 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, publisher, cfg.BaseURL)
+	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+
+	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, orchestrator, cfg.BaseURL)
 	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
 	unsubscribeUC := subscriptionapp.NewUnsubscribeUseCase(subRepo)
 	getSubsUC := subscriptionapp.NewGetSubscriptionsUseCase(subRepo)
@@ -230,7 +277,27 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 	}
 	scanner := releaseapp.NewScanner(repoRepo, subRepo, fetcher, publisher, cfg.BaseURL, scanInterval)
 
-	return subscribeUC, confirmUC, unsubscribeUC, getSubsUC, scanner
+	sagaTimeout, err := time.ParseDuration(cfg.SagaTimeout)
+	if err != nil {
+		slog.Warn("invalid SAGA_TIMEOUT, defaulting to 5m", "value", cfg.SagaTimeout)
+		sagaTimeout = 5 * time.Minute
+	}
+	sweepInterval, err := time.ParseDuration(cfg.SagaSweepInterval)
+	if err != nil {
+		slog.Warn("invalid SAGA_SWEEP_INTERVAL, defaulting to 30s", "value", cfg.SagaSweepInterval)
+		sweepInterval = 30 * time.Second
+	}
+	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, sagaTimeout, sweepInterval)
+
+	return &appServices{
+		subscribe:    subscribeUC,
+		confirm:      confirmUC,
+		unsubscribe:  unsubscribeUC,
+		getSubs:      getSubsUC,
+		scanner:      scanner,
+		orchestrator: orchestrator,
+		sweeper:      sweeper,
+	}
 }
 
 const (

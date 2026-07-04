@@ -37,6 +37,10 @@ func (c *RepoCheckerClient) CheckRepo(ctx context.Context, owner, repo string) e
 	}()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
+	if isRateLimited(resp) {
+		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "rate_limit").Inc()
+		return ErrRateLimit
+	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "ok").Inc()
@@ -44,9 +48,6 @@ func (c *RepoCheckerClient) CheckRepo(ctx context.Context, owner, repo string) e
 	case http.StatusNotFound:
 		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "not_found").Inc()
 		return ErrNotFound
-	case http.StatusTooManyRequests:
-		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "rate_limit").Inc()
-		return ErrRateLimit
 	default:
 		metrics.GithubAPIRequestsTotal.WithLabelValues("check_repo", "error").Inc()
 		return fmt.Errorf("github api returned status %d", resp.StatusCode)
