@@ -75,17 +75,11 @@ func run() error {
 		}
 	}()
 
-	notifierConn, err := grpc.NewClient(cfg.NotifierGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	notifierClient, closeNotifier, err := dialNotifierGRPC(cfg.NotifierGRPCAddr)
 	if err != nil {
-		return fmt.Errorf("dial notifier grpc %s: %w", cfg.NotifierGRPCAddr, err)
+		return err
 	}
-	defer func() {
-		if err := notifierConn.Close(); err != nil {
-			slog.Warn("notifier grpc conn close error", "error", err)
-		}
-	}()
-	slog.Info("notifier grpc client ready", "addr", cfg.NotifierGRPCAddr)
-	notifierClient := notifierv1.NewEmailNotifierServiceClient(notifierConn)
+	defer closeNotifier()
 
 	svc := setupServices(dbPool, redisClient, publisher, notifierClient, cfg)
 
@@ -141,6 +135,23 @@ func run() error {
 
 	slog.Info("server stopped")
 	return nil
+}
+
+// dialNotifierGRPC opens the app-side client for the notifier's gRPC endpoint
+// and returns a close function that logs (but does not surface) any close
+// error, matching the deferred pattern in run().
+func dialNotifierGRPC(addr string) (notifierv1.EmailNotifierServiceClient, func(), error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial notifier grpc %s: %w", addr, err)
+	}
+	slog.Info("notifier grpc client ready", "addr", addr)
+	closeFn := func() {
+		if err := conn.Close(); err != nil {
+			slog.Warn("notifier grpc conn close error", "error", err)
+		}
+	}
+	return notifierv1.NewEmailNotifierServiceClient(conn), closeFn, nil
 }
 
 // waitForShutdown blocks until either SIGINT/SIGTERM arrives or the saga

@@ -211,8 +211,10 @@ func newTestServer(tb testing.TB) *testServer {
 	})
 
 	// Notifier side: consumes both legacy deliveries and saga commands,
-	// publishes reply events via the same publisher.
-	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher)
+	// publishes reply events via the same publisher. Marker is nil because
+	// the integration test does not exercise the sync-retry / gRPC dedupe
+	// path — that is covered by the grpcsrv unit tests.
+	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher, nil)
 	if err != nil {
 		tb.Fatalf("create consumer: %v", err)
 	}
@@ -238,7 +240,11 @@ func newTestServer(tb testing.TB) *testServer {
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(sharedPool)
 
-	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+	// nil syncRetrier is safe here: the integration test does not spin up a
+	// TimeoutSweeper, so AttemptSyncRetry is never called. The base URL is
+	// only used to build a confirmation link on the sync-retry path, so a
+	// placeholder is fine.
+	orchestrator := saga.New(publisher, sagaRepo, subRepo, nil, "http://integration-test")
 
 	// App side: consumes saga reply events, drives orchestrator transitions.
 	replies, err := subscriptionrabbitmq.NewRepliesConsumer(sharedAMQP, orchestrator)

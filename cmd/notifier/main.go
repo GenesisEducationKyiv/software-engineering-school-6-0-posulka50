@@ -89,7 +89,8 @@ func run() error {
 		}
 	}()
 
-	grpcLis, err := net.Listen("tcp", ":"+grpcPort)
+	var lc net.ListenConfig
+	grpcLis, err := lc.Listen(context.Background(), "tcp", ":"+grpcPort)
 	if err != nil {
 		return fmt.Errorf("listen grpc %s: %w", grpcPort, err)
 	}
