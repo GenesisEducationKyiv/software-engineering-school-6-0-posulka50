@@ -93,7 +93,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen grpc %s: %w", grpcPort, err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(grpcsrv.NewValidationUnaryInterceptor()))
 	notifierv1.RegisterEmailNotifierServiceServer(grpcServer, grpcsrv.NewServer(sender, dedupe))
 	grpcDone := make(chan struct{})
 	go func() {

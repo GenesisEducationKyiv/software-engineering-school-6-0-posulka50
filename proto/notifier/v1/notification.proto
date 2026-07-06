@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package notifier.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "github.com/posul/github-notifier/proto/gen/notifier/v1;notifierv1";
 
 // EmailNotifierService delivers transactional emails on behalf of the app service.
@@ -19,13 +21,15 @@ service EmailNotifierService {
 message SendConfirmationRequest {
   // Saga identifier propagated end-to-end for log correlation. The notifier
   // does not persist it; it is logged and echoed in traces only.
-  string saga_id = 1;
+  string saga_id = 1 [(buf.validate.field).string.min_len = 1];
   // Recipient email address.
-  string to = 2;
+  string to = 2 [(buf.validate.field).string.email = true];
   // GitHub repository in `owner/name` form, used in the email subject/body.
-  string repo = 3;
+  string repo = 3 [(buf.validate.field).string = {
+    pattern: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+  }];
   // Fully-qualified URL the user clicks to confirm the subscription.
-  string confirm_url = 4;
+  string confirm_url = 4 [(buf.validate.field).string.uri = true];
 }
 
 message SendConfirmationResponse {}

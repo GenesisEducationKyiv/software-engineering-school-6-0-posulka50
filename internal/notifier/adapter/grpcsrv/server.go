@@ -36,21 +36,10 @@ func NewServer(sender Sender, dedupe *Dedupe) *Server {
 // SendConfirmation renders and sends the saga's confirmation email. The
 // dedupe check ensures that when the RabbitMQ path already delivered the
 // email for this saga, a sweeper-triggered retry returns OK without sending
-// again.
+// again. Field-shape validation is handled by the protovalidate interceptor
+// wired at server construction; by the time this method runs, the request
+// is already known-good against the .proto constraints.
 func (s *Server) SendConfirmation(ctx context.Context, req *notifierv1.SendConfirmationRequest) (*notifierv1.SendConfirmationResponse, error) {
-	if req.GetSagaId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "saga_id is required")
-	}
-	if req.GetTo() == "" {
-		return nil, status.Error(codes.InvalidArgument, "to is required")
-	}
-	if req.GetRepo() == "" {
-		return nil, status.Error(codes.InvalidArgument, "repo is required")
-	}
-	if req.GetConfirmUrl() == "" {
-		return nil, status.Error(codes.InvalidArgument, "confirm_url is required")
-	}
-
 	// Atomic check-and-mark: only one concurrent caller for a given saga_id
 	// wins the claim and proceeds to Resend; every other caller returns OK
 	// without sending. If the send fails we Release so a legitimate retry is

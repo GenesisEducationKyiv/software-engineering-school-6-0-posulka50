@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -150,17 +151,32 @@ func TestSendConfirmation_UnknownError_MapsToInternal(t *testing.T) {
 	}
 }
 
-func TestSendConfirmation_MissingFields_InvalidArgument(t *testing.T) {
+// TestValidationInterceptor_RejectsInvalidRequests covers the field-shape
+// contract now expressed in notification.proto (protovalidate rules). Runs
+// the interceptor directly with a stub handler so the test does not rely on
+// spinning up a real gRPC server.
+func TestValidationInterceptor_RejectsInvalidRequests(t *testing.T) {
+	interceptor := NewValidationUnaryInterceptor()
+	senderCalled := false
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		senderCalled = true
+		return &notifierv1.SendConfirmationResponse{}, nil
+	}
+	info := &grpc.UnaryServerInfo{FullMethod: "/notifier.v1.EmailNotifierService/SendConfirmation"}
+
 	cases := map[string]*notifierv1.SendConfirmationRequest{
-		"missing_saga_id":     {To: "u@e.com", Repo: "x/y", ConfirmUrl: "u"},
-		"missing_to":          {SagaId: "s", Repo: "x/y", ConfirmUrl: "u"},
-		"missing_repo":        {SagaId: "s", To: "u@e.com", ConfirmUrl: "u"},
-		"missing_confirm_url": {SagaId: "s", To: "u@e.com", Repo: "x/y"},
+		"missing_saga_id":     {To: "user@example.com", Repo: "golang/go", ConfirmUrl: "https://example.com/c/tok"},
+		"missing_to":          {SagaId: "s", Repo: "golang/go", ConfirmUrl: "https://example.com/c/tok"},
+		"invalid_to_email":    {SagaId: "s", To: "not-an-email", Repo: "golang/go", ConfirmUrl: "https://example.com/c/tok"},
+		"missing_repo":        {SagaId: "s", To: "user@example.com", ConfirmUrl: "https://example.com/c/tok"},
+		"invalid_repo_shape":  {SagaId: "s", To: "user@example.com", Repo: "no-slash", ConfirmUrl: "https://example.com/c/tok"},
+		"missing_confirm_url": {SagaId: "s", To: "user@example.com", Repo: "golang/go"},
+		"invalid_confirm_url": {SagaId: "s", To: "user@example.com", Repo: "golang/go", ConfirmUrl: "not a url"},
 	}
 	for name, req := range cases {
 		t.Run(name, func(t *testing.T) {
-			srv := NewServer(&fakeSender{}, NewDedupe(10, time.Hour))
-			_, err := srv.SendConfirmation(context.Background(), req)
+			senderCalled = false
+			_, err := interceptor(context.Background(), req, info, handler)
 			st, ok := status.FromError(err)
 			if !ok {
 				t.Fatalf("expected gRPC status error, got %v", err)
@@ -168,6 +184,22 @@ func TestSendConfirmation_MissingFields_InvalidArgument(t *testing.T) {
 			if st.Code() != codes.InvalidArgument {
 				t.Errorf("expected InvalidArgument, got %s", st.Code())
 			}
+			if senderCalled {
+				t.Error("expected handler NOT to be called on validation failure")
+			}
 		})
+	}
+}
+
+func TestValidationInterceptor_AllowsValidRequest(t *testing.T) {
+	interceptor := NewValidationUnaryInterceptor()
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return &notifierv1.SendConfirmationResponse{}, nil
+	}
+	info := &grpc.UnaryServerInfo{FullMethod: "/notifier.v1.EmailNotifierService/SendConfirmation"}
+
+	_, err := interceptor(context.Background(), validRequest(), info, handler)
+	if err != nil {
+		t.Fatalf("expected valid request to pass, got %v", err)
 	}
 }

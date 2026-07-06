@@ -7,6 +7,7 @@
 package notifierv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -134,12 +135,12 @@ var File_notifier_v1_notification_proto protoreflect.FileDescriptor
 
 const file_notifier_v1_notification_proto_rawDesc = "" +
 	"\n" +
-	"\x1enotifier/v1/notification.proto\x12\vnotifier.v1\"w\n" +
-	"\x17SendConfirmationRequest\x12\x17\n" +
-	"\asaga_id\x18\x01 \x01(\tR\x06sagaId\x12\x0e\n" +
-	"\x02to\x18\x02 \x01(\tR\x02to\x12\x12\n" +
-	"\x04repo\x18\x03 \x01(\tR\x04repo\x12\x1f\n" +
-	"\vconfirm_url\x18\x04 \x01(\tR\n" +
+	"\x1enotifier/v1/notification.proto\x12\vnotifier.v1\x1a\x1bbuf/validate/validate.proto\"\xbd\x01\n" +
+	"\x17SendConfirmationRequest\x12 \n" +
+	"\asaga_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06sagaId\x12\x17\n" +
+	"\x02to\x18\x02 \x01(\tB\a\xbaH\x04r\x02`\x01R\x02to\x12<\n" +
+	"\x04repo\x18\x03 \x01(\tB(\xbaH%r#2!^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$R\x04repo\x12)\n" +
+	"\vconfirm_url\x18\x04 \x01(\tB\b\xbaH\x05r\x03\x88\x01\x01R\n" +
 	"confirmUrl\"\x1a\n" +
 	"\x18SendConfirmationResponse2w\n" +
 	"\x14EmailNotifierService\x12_\n" +
