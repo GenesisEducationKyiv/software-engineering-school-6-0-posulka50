@@ -6,6 +6,7 @@ package grpcsrv
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"google.golang.org/grpc/codes"
@@ -67,10 +68,25 @@ func (s *Server) SendConfirmation(ctx context.Context, req *notifierv1.SendConfi
 		s.dedupe.Release(req.GetSagaId())
 		slog.ErrorContext(ctx, "grpc: send confirmation failed",
 			"saga_id", req.GetSagaId(), "to", req.GetTo(), "repo", req.GetRepo(), "error", err)
-		return nil, status.Errorf(codes.Internal, "send confirmation: %v", err)
+		return nil, sendErrorToStatus(err)
 	}
 
 	slog.InfoContext(ctx, "grpc: confirmation sent",
 		"saga_id", req.GetSagaId(), "to", req.GetTo(), "repo", req.GetRepo())
 	return &notifierv1.SendConfirmationResponse{}, nil
+}
+
+// sendErrorToStatus maps a Sender error to the gRPC status codes promised by
+// the proto contract: DeadlineExceeded when the caller/upstream ran out of
+// time, Unavailable for transient transport failures to the email provider,
+// Internal for anything else (render errors, marshal errors, 4xx from Resend).
+func sendErrorToStatus(err error) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Errorf(codes.DeadlineExceeded, "send confirmation: %v", err)
+	case errors.Is(err, domain.ErrUpstreamUnavailable):
+		return status.Errorf(codes.Unavailable, "send confirmation: %v", err)
+	default:
+		return status.Errorf(codes.Internal, "send confirmation: %v", err)
+	}
 }

@@ -3,6 +3,7 @@ package grpcsrv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -98,6 +99,54 @@ func TestSendConfirmation_SenderError_MapsToInternalAndSkipsMark(t *testing.T) {
 	}
 	if dedupe.Seen("saga-1") {
 		t.Error("expected saga NOT to be marked when sender fails")
+	}
+}
+
+func TestSendConfirmation_UpstreamUnavailable_MapsToUnavailable(t *testing.T) {
+	sender := &fakeSender{err: fmt.Errorf("send resend request: %w", domain.ErrUpstreamUnavailable)}
+	dedupe := NewDedupe(10, time.Hour)
+	srv := NewServer(sender, dedupe)
+
+	_, err := srv.SendConfirmation(context.Background(), validRequest())
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.Unavailable {
+		t.Errorf("expected codes.Unavailable, got %s", st.Code())
+	}
+	if dedupe.Seen("saga-1") {
+		t.Error("expected saga to be released after transport failure")
+	}
+}
+
+func TestSendConfirmation_DeadlineExceeded_MapsToDeadlineExceeded(t *testing.T) {
+	sender := &fakeSender{err: fmt.Errorf("send resend request: %w", context.DeadlineExceeded)}
+	dedupe := NewDedupe(10, time.Hour)
+	srv := NewServer(sender, dedupe)
+
+	_, err := srv.SendConfirmation(context.Background(), validRequest())
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.DeadlineExceeded {
+		t.Errorf("expected codes.DeadlineExceeded, got %s", st.Code())
+	}
+}
+
+func TestSendConfirmation_UnknownError_MapsToInternal(t *testing.T) {
+	sender := &fakeSender{err: errors.New("render failed")}
+	dedupe := NewDedupe(10, time.Hour)
+	srv := NewServer(sender, dedupe)
+
+	_, err := srv.SendConfirmation(context.Background(), validRequest())
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
+	}
+	if st.Code() != codes.Internal {
+		t.Errorf("expected codes.Internal, got %s", st.Code())
 	}
 }
 
