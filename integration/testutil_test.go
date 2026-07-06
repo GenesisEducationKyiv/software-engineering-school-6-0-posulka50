@@ -184,7 +184,7 @@ type testServer struct {
 //   - App side: SubscribeUseCase -> Orchestrator -> Publisher -> command queue.
 //   - Notifier side (in-test): rabbitmq.Consumer -> stubEmail.SendConfirmation
 //     -> Publisher -> reply event queue.
-//   - App side again: saga.RepliesConsumer -> Orchestrator.HandleSent / HandleFailed.
+//   - App side again: subscription/adapter/rabbitmq.RepliesConsumer -> Orchestrator.HandleSent / HandleFailed.
 //
 // Tables and all three saga queues are reset before each test for isolation.
 // Tests observe outcomes via stubEmail (for sent confirmations) and the DB
