@@ -46,6 +46,36 @@ func NewDefaultDedupe() *Dedupe {
 func (d *Dedupe) Mark(sagaID string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.insertLocked(sagaID)
+}
+
+// TryClaim atomically records sagaID and returns true if this call is the
+// first to do so within the TTL window. Callers proceed with the side effect
+// only when TryClaim returns true; a concurrent duplicate gets false and must
+// skip. On send failure, Release removes the claim so a legitimate retry is
+// not blocked. Fuses the Seen+Mark pair into a single locked section, closing
+// the TOCTOU window where two concurrent requests would both observe an
+// unmarked saga and each dispatch an email.
+func (d *Dedupe) TryClaim(sagaID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if t, ok := d.entries[sagaID]; ok && d.now().Sub(t) <= d.ttl {
+		return false
+	}
+	d.insertLocked(sagaID)
+	return true
+}
+
+// Release removes sagaID from the cache, allowing a follow-up retry to
+// proceed. Intended for use immediately after a failed send inside the same
+// caller that claimed the saga.
+func (d *Dedupe) Release(sagaID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.entries, sagaID)
+}
+
+func (d *Dedupe) insertLocked(sagaID string) {
 	if len(d.entries) >= d.max {
 		d.evictExpiredLocked()
 	}

@@ -3,6 +3,7 @@ package grpcsrv
 import (
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -80,6 +81,56 @@ func TestDedupe_MaxSize_PrefersExpiredEviction(t *testing.T) {
 	}
 	if !d.Seen("survivor") {
 		t.Error("expected fresh survivor entry to remain")
+	}
+}
+
+func TestDedupe_TryClaim_ConcurrentWinnerIsUnique(t *testing.T) {
+	d := NewDedupe(1000, time.Hour)
+	const workers = 32
+	var winners atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			if d.TryClaim("saga-x") {
+				winners.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if got := winners.Load(); got != 1 {
+		t.Fatalf("expected exactly 1 winner, got %d", got)
+	}
+}
+
+func TestDedupe_TryClaim_SecondCallLosesUntilRelease(t *testing.T) {
+	d := NewDedupe(10, time.Hour)
+	if !d.TryClaim("saga-1") {
+		t.Fatal("first claim should win")
+	}
+	if d.TryClaim("saga-1") {
+		t.Fatal("second claim should lose while first is live")
+	}
+	d.Release("saga-1")
+	if !d.TryClaim("saga-1") {
+		t.Fatal("claim after release should succeed")
+	}
+}
+
+func TestDedupe_TryClaim_ReclaimsAfterTTL(t *testing.T) {
+	d := NewDedupe(10, 100*time.Millisecond)
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	if !d.TryClaim("saga-1") {
+		t.Fatal("initial claim should win")
+	}
+	d.now = func() time.Time { return now.Add(200 * time.Millisecond) }
+	if !d.TryClaim("saga-1") {
+		t.Fatal("claim after TTL expiry should win")
 	}
 }
 

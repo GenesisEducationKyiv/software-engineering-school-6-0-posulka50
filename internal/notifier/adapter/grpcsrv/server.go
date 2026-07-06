@@ -50,7 +50,11 @@ func (s *Server) SendConfirmation(ctx context.Context, req *notifierv1.SendConfi
 		return nil, status.Error(codes.InvalidArgument, "confirm_url is required")
 	}
 
-	if s.dedupe.Seen(req.GetSagaId()) {
+	// Atomic check-and-mark: only one concurrent caller for a given saga_id
+	// wins the claim and proceeds to Resend; every other caller returns OK
+	// without sending. If the send fails we Release so a legitimate retry is
+	// not permanently blocked.
+	if !s.dedupe.TryClaim(req.GetSagaId()) {
 		slog.InfoContext(ctx, "grpc: dedupe hit, skipping confirmation send",
 			"saga_id", req.GetSagaId(), "to", req.GetTo())
 		return &notifierv1.SendConfirmationResponse{}, nil
@@ -60,12 +64,12 @@ func (s *Server) SendConfirmation(ctx context.Context, req *notifierv1.SendConfi
 		Repo:       req.GetRepo(),
 		ConfirmURL: req.GetConfirmUrl(),
 	}); err != nil {
+		s.dedupe.Release(req.GetSagaId())
 		slog.ErrorContext(ctx, "grpc: send confirmation failed",
 			"saga_id", req.GetSagaId(), "to", req.GetTo(), "repo", req.GetRepo(), "error", err)
 		return nil, status.Errorf(codes.Internal, "send confirmation: %v", err)
 	}
 
-	s.dedupe.Mark(req.GetSagaId())
 	slog.InfoContext(ctx, "grpc: confirmation sent",
 		"saga_id", req.GetSagaId(), "to", req.GetTo(), "repo", req.GetRepo())
 	return &notifierv1.SendConfirmationResponse{}, nil
