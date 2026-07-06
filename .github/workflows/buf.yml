@@ -1,0 +1,37 @@
+name: buf
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    name: Buf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: buf lint
+        run: buf lint
+
+  breaking:
+    name: Buf Breaking
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      # Compare the PR head against the target branch on the remote so we
+      # do not have to fetch the full local git history. Uses buf's git-URL
+      # source form; buf discovers the module list via buf.yaml at the repo
+      # root, so no subdir selector is needed.
+      - name: buf breaking
+        run: |
+          buf breaking \
+            --against "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }}"
