@@ -10,6 +10,8 @@ import (
 	"github.com/posul/github-notifier/internal/subscription/saga"
 )
 
+const testBaseURL = "https://example.com"
+
 type fakePublisher struct {
 	calls []struct {
 		sagaID, to, repo, confirmURL string
@@ -33,6 +35,9 @@ func newFakeSagaStore() *fakeSagaStore {
 	return &fakeSagaStore{sagas: make(map[string]*domain.Saga)}
 }
 
+// Create is not part of the sagaStore port used by the orchestrator (the saga
+// row is inserted atomically alongside the subscription by the use case), but
+// tests use it to seed a pending saga before exercising transitions.
 func (f *fakeSagaStore) Create(_ context.Context, s *domain.Saga) error {
 	if f.createErr != nil {
 		return f.createErr
@@ -143,31 +148,41 @@ func newSubscription() *domain.Subscription {
 	}
 }
 
-const testBaseURL = "https://example.com"
-
-// retrierIface mirrors the unexported syncRetrier interface so test helpers
-// can accept either *fakeRetrier or *racingRetrier.
-type retrierIface interface {
-	Retry(ctx context.Context, sagaID, to, repo, confirmURL string) error
+// seedPendingSaga puts a pending saga row into the fake store, mimicking what
+// SubscriptionRepository.CreateWithSaga does atomically alongside the
+// subscription insert in production.
+func seedPendingSaga(t *testing.T, sagas *fakeSagaStore, sub *domain.Subscription) string {
+	t.Helper()
+	s := domain.NewSaga(sub.ID)
+	if err := sagas.Create(context.Background(), s); err != nil {
+		t.Fatalf("seed pending saga: %v", err)
+	}
+	return s.ID
 }
 
-func newOrchestrator(pub *fakePublisher, sagas *fakeSagaStore, subs *fakeSubStore, retrier retrierIface) *saga.Orchestrator {
+// newOrchestrator wraps saga.New with fake defaults so tests do not have to
+// mention the retrier/baseURL wiring unless they exercise it.
+func newOrchestrator(pub *fakePublisher, sagas *fakeSagaStore, subs *fakeSubStore, retrier syncRetrierIface) *saga.Orchestrator {
 	return saga.New(pub, sagas, subs, retrier, testBaseURL)
 }
 
-func TestStart_HappyPath(t *testing.T) {
+// syncRetrierIface mirrors the unexported syncRetrier interface so both
+// fakeRetrier and racingRetrier can be passed to newOrchestrator.
+type syncRetrierIface interface {
+	Retry(ctx context.Context, sagaID, to, repo, confirmURL string) error
+}
+
+func TestPublish_HappyPath(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
 
 	sub := newSubscription()
-	sagaID, err := o.Start(context.Background(), sub, "https://example/confirm/x")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if sagaID == "" {
-		t.Fatal("expected non-empty saga id")
+	sagaID := seedPendingSaga(t, sagas, sub)
+
+	if err := o.Publish(context.Background(), sagaID, sub, "https://example/confirm/x"); err != nil {
+		t.Fatalf("Publish: %v", err)
 	}
 	if len(pub.calls) != 1 {
 		t.Fatalf("expected 1 publish call, got %d", len(pub.calls))
@@ -178,42 +193,41 @@ func TestStart_HappyPath(t *testing.T) {
 	}
 	got, _ := sagas.Get(context.Background(), sagaID)
 	if got.State != domain.SagaStatePending {
-		t.Errorf("expected saga pending, got %s", got.State)
+		t.Errorf("expected saga pending after publish, got %s", got.State)
 	}
 	if len(subs.deleted) != 0 {
-		t.Errorf("Start must not touch subscriptions, got deletes: %v", subs.deleted)
+		t.Errorf("Publish must not touch subscriptions on success, got deletes: %v", subs.deleted)
 	}
 }
 
-func TestStart_PublishFails_MarksCompensatedAndLeavesSubscription(t *testing.T) {
+func TestPublish_Fails_CompensatesInline(t *testing.T) {
 	pub := &fakePublisher{err: errors.New("broker down")}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
 
 	sub := newSubscription()
-	sagaID, err := o.Start(context.Background(), sub, "url")
-	if err == nil {
-		t.Fatal("expected error from Start when publish fails")
+	sagaID := seedPendingSaga(t, sagas, sub)
+
+	if err := o.Publish(context.Background(), sagaID, sub, "url"); err == nil {
+		t.Fatal("expected error from Publish when broker publish fails")
 	}
 	got, _ := sagas.Get(context.Background(), sagaID)
 	if got.State != domain.SagaStateCompensated {
-		t.Errorf("expected compensated, got %s", got.State)
+		t.Errorf("expected compensated after inline HandleFailed, got %s", got.State)
 	}
-	// Subscription cleanup is the caller's responsibility on Start failure
-	// (the saga never went live so the orchestrator does not own the row).
-	if len(subs.deleted) != 0 {
-		t.Errorf("Start failure must not delete subscription, got: %v", subs.deleted)
+	if len(subs.deleted) != 1 || subs.deleted[0] != sub.ID {
+		t.Errorf("expected subscription %q deleted inline, got %v", sub.ID, subs.deleted)
 	}
 }
 
 func TestHandleSent_MarksCompleted(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
 	sub := newSubscription()
-	sagaID, _ := o.Start(context.Background(), sub, "url")
+	sagaID := seedPendingSaga(t, sagas, sub)
 
 	if err := o.HandleSent(context.Background(), sagaID); err != nil {
 		t.Fatalf("HandleSent: %v", err)
@@ -230,9 +244,9 @@ func TestHandleSent_MarksCompleted(t *testing.T) {
 func TestHandleSent_DuplicateEvent_NoError(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
-	sagaID, _ := o.Start(context.Background(), newSubscription(), "url")
+	sagaID := seedPendingSaga(t, sagas, newSubscription())
 	_ = o.HandleSent(context.Background(), sagaID)
 
 	if err := o.HandleSent(context.Background(), sagaID); err != nil {
@@ -243,10 +257,10 @@ func TestHandleSent_DuplicateEvent_NoError(t *testing.T) {
 func TestHandleFailed_CompensatesAndDeletesSubscription(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
 	sub := newSubscription()
-	sagaID, _ := o.Start(context.Background(), sub, "url")
+	sagaID := seedPendingSaga(t, sagas, sub)
 
 	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err != nil {
 		t.Fatalf("HandleFailed: %v", err)
@@ -266,9 +280,9 @@ func TestHandleFailed_CompensatesAndDeletesSubscription(t *testing.T) {
 func TestHandleFailed_AlreadyCompleted_NoOp(t *testing.T) {
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
-	subs := &fakeSubStore{}
+	subs := newFakeSubStore()
 	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
-	sagaID, _ := o.Start(context.Background(), newSubscription(), "url")
+	sagaID := seedPendingSaga(t, sagas, newSubscription())
 	_ = o.HandleSent(context.Background(), sagaID)
 
 	if err := o.HandleFailed(context.Background(), sagaID, "late timeout"); err != nil {
@@ -279,17 +293,50 @@ func TestHandleFailed_AlreadyCompleted_NoOp(t *testing.T) {
 	}
 }
 
+func TestHandleFailed_DeleteFails_RetrySucceeds(t *testing.T) {
+	pub := &fakePublisher{}
+	sagas := newFakeSagaStore()
+	subs := newFakeSubStore()
+	subs.deleteErr = errors.New("db blip")
+	o := newOrchestrator(pub, sagas, subs, &fakeRetrier{})
+	sub := newSubscription()
+	sagaID := seedPendingSaga(t, sagas, sub)
+
+	// First delivery: Delete blows up. The orchestrator must NOT flip the
+	// saga to compensated — otherwise the redelivered event would short-circuit
+	// on the state guard and the subscription would stay orphaned.
+	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err == nil {
+		t.Fatal("expected error when subscription delete fails")
+	}
+	got, _ := sagas.Get(context.Background(), sagaID)
+	if got.State != domain.SagaStatePending {
+		t.Fatalf("saga must stay pending when delete fails, got %s", got.State)
+	}
+
+	// Broker redelivers; the DB has recovered.
+	subs.deleteErr = nil
+	if err := o.HandleFailed(context.Background(), sagaID, "resend 500"); err != nil {
+		t.Fatalf("retry HandleFailed: %v", err)
+	}
+	got, _ = sagas.Get(context.Background(), sagaID)
+	if got.State != domain.SagaStateCompensated {
+		t.Errorf("expected compensated after retry, got %s", got.State)
+	}
+	if len(subs.deleted) != 2 || subs.deleted[1] != sub.ID {
+		t.Errorf("expected retried delete of %q, got %v", sub.ID, subs.deleted)
+	}
+}
+
 func TestHandleFailed_UnknownSaga_NoError(t *testing.T) {
-	o := newOrchestrator(&fakePublisher{}, newFakeSagaStore(), &fakeSubStore{}, &fakeRetrier{})
+	o := newOrchestrator(&fakePublisher{}, newFakeSagaStore(), newFakeSubStore(), &fakeRetrier{})
 	if err := o.HandleFailed(context.Background(), "ghost-id", "x"); err != nil {
 		t.Errorf("HandleFailed for unknown saga should be no-op, got %v", err)
 	}
 }
 
-// setupForRetry creates an orchestrator with a saga + subscription already
-// in place, mimicking the state the sweeper sees when it picks up a stuck
-// pending saga.
-func setupForRetry(t *testing.T, retrier *fakeRetrier) (*saga.Orchestrator, *fakeSagaStore, *fakeSubStore, string) {
+// setupForRetry primes the fakes with a pending saga + its subscription,
+// mimicking the state the TimeoutSweeper sees when it picks up a stuck saga.
+func setupForRetry(t *testing.T, retrier syncRetrierIface) (*saga.Orchestrator, *fakeSagaStore, *fakeSubStore, string) {
 	t.Helper()
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
@@ -297,10 +344,7 @@ func setupForRetry(t *testing.T, retrier *fakeRetrier) (*saga.Orchestrator, *fak
 	sub := newSubscription()
 	subs.subs[sub.ID] = sub
 	o := newOrchestrator(pub, sagas, subs, retrier)
-	sagaID, err := o.Start(context.Background(), sub, "https://example.com/api/confirm/tok-confirm")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	sagaID := seedPendingSaga(t, sagas, sub)
 	return o, sagas, subs, sagaID
 }
 
@@ -384,10 +428,7 @@ func TestAttemptSyncRetry_SubscriptionNotFound_ReturnsError(t *testing.T) {
 	subs := newFakeSubStore()
 	// Subscription deliberately missing — simulates a corrupted FK scenario.
 	o := newOrchestrator(pub, sagas, subs, retrier)
-	sagaID, err := o.Start(context.Background(), newSubscription(), "url")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	sagaID := seedPendingSaga(t, sagas, newSubscription())
 
 	if err := o.AttemptSyncRetry(context.Background(), sagaID); err == nil {
 		t.Fatal("expected error when subscription is missing")
@@ -398,39 +439,21 @@ func TestAttemptSyncRetry_SubscriptionNotFound_ReturnsError(t *testing.T) {
 }
 
 func TestAttemptSyncRetry_RacedByAsyncReply_NoErrorOnAlreadyTerminal(t *testing.T) {
-	// Simulates: sweeper reads pending; calls gRPC; gRPC succeeds; between the
-	// gRPC return and MarkCompleted, an async reply lands and completes the
-	// saga. The orchestrator's MarkCompleted returns ErrNotFound, which must
-	// be treated as a benign no-op.
-	retrier := &fakeRetrier{}
+	// Simulates: sweeper reads pending; calls gRPC; between the RPC return and
+	// MarkCompleted, an async reply lands and completes the saga. The
+	// orchestrator's MarkCompleted returns ErrNotFound, which must be treated
+	// as a benign no-op.
 	pub := &fakePublisher{}
 	sagas := newFakeSagaStore()
 	subs := newFakeSubStore()
 	sub := newSubscription()
 	subs.subs[sub.ID] = sub
-	o := newOrchestrator(pub, sagas, subs, retrier)
-	sagaID, err := o.Start(context.Background(), sub, "url")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	// Mark via the fake store directly so the SQL-equivalent guard fires on
-	// the orchestrator's later MarkCompleted call.
-	if err := sagas.MarkCompleted(context.Background(), sagaID); err != nil {
-		t.Fatalf("preload completed: %v", err)
-	}
-	// Force the orchestrator past the pending-check by temporarily flipping
-	// state back to pending in the fake; this models the race window between
-	// the orchestrator's Get and MarkCompleted on a real DB.
-	sagas.sagas[sagaID].State = domain.SagaStatePending
-	// Then have the retrier observe the "race" by completing it during the
-	// gRPC call.
-	retrier.err = nil
-	retrier.calls = nil
-	// Use a custom retrier that completes the saga mid-call.
-	racingRetrier := &racingRetrier{store: sagas, sagaID: sagaID}
-	racingOrch := newOrchestrator(pub, sagas, subs, racingRetrier)
+	sagaID := seedPendingSaga(t, sagas, sub)
 
-	if err := racingOrch.AttemptSyncRetry(context.Background(), sagaID); err != nil {
+	racingRetrier := &racingRetrier{store: sagas, sagaID: sagaID}
+	o := newOrchestrator(pub, sagas, subs, racingRetrier)
+
+	if err := o.AttemptSyncRetry(context.Background(), sagaID); err != nil {
 		t.Errorf("expected benign no-op on race with async reply, got %v", err)
 	}
 }

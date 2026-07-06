@@ -53,6 +53,7 @@ func (m *mockRepoRepo) UpdateLastSeenTag(_ context.Context, id, tag string) erro
 
 type mockSubRepo struct {
 	subs           map[string]*domain.Subscription
+	sagas          map[string]*domain.Saga
 	byConfirmToken map[string]*domain.Subscription
 	byUnsubToken   map[string]*domain.Subscription
 	confirmedIDs   map[string]bool
@@ -62,12 +63,15 @@ type mockSubRepo struct {
 func newMockSubRepo() *mockSubRepo {
 	return &mockSubRepo{
 		subs:           make(map[string]*domain.Subscription),
+		sagas:          make(map[string]*domain.Saga),
 		byConfirmToken: make(map[string]*domain.Subscription),
 		byUnsubToken:   make(map[string]*domain.Subscription),
 		confirmedIDs:   make(map[string]bool),
 	}
 }
 
+// Create is kept for tests that exercise the repo shape directly; the use
+// case path goes through CreateWithSaga.
 func (m *mockSubRepo) Create(_ context.Context, sub *domain.Subscription) error {
 	if m.createErr != nil {
 		return m.createErr
@@ -80,6 +84,16 @@ func (m *mockSubRepo) Create(_ context.Context, sub *domain.Subscription) error 
 	m.subs[sub.ID] = sub
 	m.byConfirmToken[sub.ConfirmToken] = sub
 	m.byUnsubToken[sub.UnsubscribeToken] = sub
+	return nil
+}
+
+// CreateWithSaga mirrors the production atomic insert: subscription + saga
+// land together or neither lands.
+func (m *mockSubRepo) CreateWithSaga(ctx context.Context, sub *domain.Subscription, s *domain.Saga) error {
+	if err := m.Create(ctx, sub); err != nil {
+		return err
+	}
+	m.sagas[s.ID] = s
 	return nil
 }
 
@@ -154,16 +168,13 @@ func (m *mockGitHub) CheckRepo(_ context.Context, _, _ string) error {
 }
 
 type mockSaga struct {
-	startCalled bool
-	startErr    error
+	publishCalled bool
+	publishErr    error
 }
 
-func (m *mockSaga) Start(_ context.Context, _ *domain.Subscription, _ string) (string, error) {
-	m.startCalled = true
-	if m.startErr != nil {
-		return "", m.startErr
-	}
-	return "saga-id", nil
+func (m *mockSaga) Publish(_ context.Context, _ string, _ *domain.Subscription, _ string) error {
+	m.publishCalled = true
+	return m.publishErr
 }
 
 func newSubscribeUC(repos *mockRepoRepo, subs *mockSubRepo, gh *mockGitHub, sg *mockSaga) *app.SubscribeUseCase {
@@ -182,26 +193,27 @@ func TestSubscribe_Success(t *testing.T) {
 	if len(subs.subs) != 1 {
 		t.Fatalf("expected 1 subscription in repo, got %d", len(subs.subs))
 	}
-	if !sg.startCalled {
-		t.Error("expected saga to be started")
+	if len(subs.sagas) != 1 {
+		t.Fatalf("expected 1 saga row inserted atomically with subscription, got %d", len(subs.sagas))
+	}
+	if !sg.publishCalled {
+		t.Error("expected saga command to be published")
 	}
 }
 
-// TestSubscribe_SagaStartFailureDeletesSubscription verifies the local
-// rollback path: when the orchestrator cannot publish the saga command, the
-// just-created subscription is removed so a retry will not return 409.
-func TestSubscribe_SagaStartFailureDeletesSubscription(t *testing.T) {
+// TestSubscribe_PublishFailureIsSurfaced verifies that a publish failure
+// still returns an error to the caller. Cleanup of the orphaned subscription
+// is now the orchestrator's responsibility (inline HandleFailed, or the
+// sweeper as a fallback), not the use case's.
+func TestSubscribe_PublishFailureIsSurfaced(t *testing.T) {
 	repos := newMockRepoRepo()
 	subs := newMockSubRepo()
-	sg := &mockSaga{startErr: errors.New("publish failed")}
+	sg := &mockSaga{publishErr: errors.New("publish failed")}
 	uc := newSubscribeUC(repos, subs, &mockGitHub{}, sg)
 
 	err := uc.Subscribe(context.Background(), "user@example.com", "golang/go")
 	if err == nil {
 		t.Fatalf("expected error, got nil")
-	}
-	if len(subs.subs) != 0 {
-		t.Errorf("expected subscription to be deleted on saga start failure, got %d", len(subs.subs))
 	}
 }
 

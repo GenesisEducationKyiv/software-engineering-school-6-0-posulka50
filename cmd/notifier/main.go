@@ -104,7 +104,16 @@ func run() error {
 		}
 	}()
 
-	router := newRouter(ginMode)
+	consumerAlive := func() bool {
+		select {
+		case <-consumerDone:
+			return false
+		default:
+			return true
+		}
+	}
+
+	router := newRouter(ginMode, consumerAlive)
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -121,13 +130,33 @@ func run() error {
 		}
 	}()
 
+	runErr := waitForShutdown(consumerDone)
+	cancelConsumer()
+	gracefulShutdown(srv, grpcServer, consumer, consumerDone, grpcDone)
+	slog.Info("notifier: stopped")
+	return runErr
+}
+
+// waitForShutdown blocks until either a termination signal arrives or the
+// consumer goroutine exits. A silent consumer with a live HTTP server is
+// worse than a crash: the orchestrator would keep the pod around because
+// /health used to lie about it, so consumer death is surfaced as a non-nil
+// error and drives the process to restart.
+func waitForShutdown(consumerDone <-chan struct{}) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	slog.Info("notifier: shutting down gracefully")
-	cancelConsumer()
+	select {
+	case <-quit:
+		slog.Info("notifier: shutting down gracefully")
+		return nil
+	case <-consumerDone:
+		slog.Error("notifier: consumer exited unexpectedly, shutting down")
+		return errors.New("notifier: consumer exited unexpectedly")
+	}
+}
 
+func gracefulShutdown(srv *http.Server, grpcServer *grpc.Server, consumer *rabbitmq.Consumer, consumerDone, grpcDone <-chan struct{}) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -154,9 +183,6 @@ func run() error {
 	if err := consumer.Close(); err != nil {
 		slog.Warn("notifier: consumer close error", "error", err)
 	}
-
-	slog.Info("notifier: stopped")
-	return nil
 }
 
 func dialConsumerWithRetry(brokerURL string, sender rabbitmq.Sender, replies rabbitmq.ReplyPublisher, marker rabbitmq.Marker) (*rabbitmq.Consumer, error) {
@@ -191,7 +217,12 @@ func dialPublisherWithRetry(brokerURL string) (*rabbitmq.Publisher, error) {
 
 // newRouter wires only operational endpoints: /health for compose probes and
 // /metrics for Prometheus. Notification delivery is broker-only.
-func newRouter(ginMode string) *gin.Engine {
+//
+// consumerAlive lets /health report the true worker status: if the RabbitMQ
+// consumer goroutine has exited, the process is on its way down and probes
+// must fail so the orchestrator restarts the pod instead of keeping a silent
+// notifier alive.
+func newRouter(ginMode string, consumerAlive func() bool) *gin.Engine {
 	gin.SetMode(ginMode)
 
 	r := gin.New()
@@ -201,6 +232,10 @@ func newRouter(ginMode string) *gin.Engine {
 	r.Use(middleware.Prometheus())
 
 	r.GET("/health", func(c *gin.Context) {
+		if !consumerAlive() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "consumer stopped"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))

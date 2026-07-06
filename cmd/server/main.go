@@ -31,6 +31,7 @@ import (
 	releaseapp "github.com/posul/github-notifier/internal/release/app"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
 	notifierv1 "github.com/posul/github-notifier/proto/gen/notifier/v1"
@@ -88,7 +89,7 @@ func run() error {
 
 	svc := setupServices(dbPool, redisClient, publisher, notifierClient, cfg)
 
-	repliesConsumer, err := saga.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
+	repliesConsumer, err := subscriptionrabbitmq.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
 	if err != nil {
 		return fmt.Errorf("connect saga replies consumer: %w", err)
 	}
@@ -123,11 +124,7 @@ func run() error {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	slog.Info("shutting down gracefully")
+	waitForShutdown(repliesDone)
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -144,6 +141,22 @@ func run() error {
 
 	slog.Info("server stopped")
 	return nil
+}
+
+// waitForShutdown blocks until either SIGINT/SIGTERM arrives or the saga
+// replies consumer goroutine exits. A silent consumer with a live HTTP
+// server is worse than a crash: /health stays green while new subscriptions
+// pile up as pending sagas that eventually time out. Surface consumer death
+// as the shutdown trigger so the orchestrator restarts the process.
+func waitForShutdown(repliesDone <-chan struct{}) {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-quit:
+		slog.Info("shutting down gracefully")
+	case <-repliesDone:
+		slog.Error("saga replies consumer exited unexpectedly, shutting down")
+	}
 }
 
 func initDB(databaseURL string) (*pgxpool.Pool, error) {

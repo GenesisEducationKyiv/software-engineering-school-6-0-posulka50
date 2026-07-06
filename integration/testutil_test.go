@@ -28,6 +28,7 @@ import (
 	releasepostgres "github.com/posul/github-notifier/internal/release/adapter/postgres"
 	subscriptionhttp "github.com/posul/github-notifier/internal/subscription/adapter/http"
 	subscriptionpostgres "github.com/posul/github-notifier/internal/subscription/adapter/postgres"
+	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
 )
@@ -149,14 +150,6 @@ func (s *stubEmail) setErr(err error) {
 	s.err = err
 }
 
-// stubRetrier satisfies saga.syncRetrier. The integration suite does not
-// drive the sweeper into the gRPC path, so any call here is a test bug.
-type stubRetrier struct{}
-
-func (stubRetrier) Retry(_ context.Context, _, _, _, _ string) error {
-	return errors.New("stubRetrier: gRPC path not exercised by integration tests")
-}
-
 func (s *stubEmail) Confirmations() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,9 +211,8 @@ func newTestServer(tb testing.TB) *testServer {
 	})
 
 	// Notifier side: consumes both legacy deliveries and saga commands,
-	// publishes reply events via the same publisher. Marker is nil here:
-	// the gRPC dedupe is not exercised by this integration suite.
-	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher, nil)
+	// publishes reply events via the same publisher.
+	consumer, err := rabbitmq.NewConsumer(sharedAMQP, em, publisher)
 	if err != nil {
 		tb.Fatalf("create consumer: %v", err)
 	}
@@ -246,12 +238,10 @@ func newTestServer(tb testing.TB) *testServer {
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(sharedPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(sharedPool)
 
-	// Integration tests do not exercise the gRPC retry path: pass a stub
-	// retrier that always errors so any accidental call surfaces loudly.
-	orchestrator := saga.New(publisher, sagaRepo, subRepo, stubRetrier{}, "http://test")
+	orchestrator := saga.New(publisher, sagaRepo, subRepo)
 
 	// App side: consumes saga reply events, drives orchestrator transitions.
-	replies, err := saga.NewRepliesConsumer(sharedAMQP, orchestrator)
+	replies, err := subscriptionrabbitmq.NewRepliesConsumer(sharedAMQP, orchestrator)
 	if err != nil {
 		tb.Fatalf("create replies consumer: %v", err)
 	}

@@ -37,13 +37,14 @@ func (c *ReleaseFetcherClient) GetLatestRelease(ctx context.Context, owner, repo
 		}
 	}()
 
+	if isRateLimited(resp) {
+		metrics.GithubAPIRequestsTotal.WithLabelValues("get_release", "rate_limit").Inc()
+		return nil, ErrRateLimit
+	}
 	switch resp.StatusCode {
 	case http.StatusNotFound:
 		metrics.GithubAPIRequestsTotal.WithLabelValues("get_release", "not_found").Inc()
 		return nil, ErrNotFound
-	case http.StatusTooManyRequests:
-		metrics.GithubAPIRequestsTotal.WithLabelValues("get_release", "rate_limit").Inc()
-		return nil, ErrRateLimit
 	case http.StatusOK:
 		metrics.GithubAPIRequestsTotal.WithLabelValues("get_release", "ok").Inc()
 	default:
