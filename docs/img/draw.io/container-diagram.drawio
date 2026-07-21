@@ -1,0 +1,68 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Container Diagram - GitHub Release Notifier" id="0">
+    <mxGraphModel dx="3761" dy="1030" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="user" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;" value="Subscriber&#xa;&#xa;Manages subscriptions via HTTP API" vertex="1">
+          <mxGeometry height="120" width="60" x="-100" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="app" parent="1" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=35;rounded=1;container=1;collapsible=0;whiteSpace=wrap;html=1;" value="Release Notifier (Go binary)" vertex="1">
+          <mxGeometry height="130" width="520" x="240" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="REST API&#xa;[Go / Gin]&#xa;&#xa;Handles subscribe, confirm, unsubscribe, list requests" vertex="1">
+          <mxGeometry height="95" width="260" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="scanner" parent="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" value="Scanner Worker&#xa;[Go goroutine]&#xa;&#xa;Periodically polls GitHub and dispatches release notifications" vertex="1">
+          <mxGeometry height="95" width="260" x="260" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="PostgreSQL&#xa;[Database]&#xa;&#xa;Stores repositories and subscriptions" vertex="1">
+          <mxGeometry height="130" width="180" x="70" y="462.5" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Redis&#xa;[Cache]&#xa;&#xa;Caches GitHub repo-existence checks; TTL 10 min" vertex="1">
+          <mxGeometry height="135" width="180" x="-150" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="github" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="GitHub API&#xa;&#xa;Repository metadata and latest release tags" vertex="1">
+          <mxGeometry height="90" width="220" x="780" y="372.5" as="geometry" />
+        </mxCell>
+        <mxCell id="resend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Resend API&#xa;&#xa;Transactional email delivery" vertex="1">
+          <mxGeometry height="90" width="220" x="440" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="user" style="endArrow=block;html=1;" target="api" value="HTTPS&#xa;subscribe / confirm / unsubscribe / list">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="api" style="endArrow=block;html=1;" target="postgres" value="SQL&#xa;read / write subscriptions &amp; repositories">
+          <mxGeometry relative="1" x="-0.2573" y="2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="api" style="endArrow=block;html=1;" target="redis" value="GET / SET&#xa;repo-existence cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="api" style="endArrow=block;html=1;" target="github" value="HTTPS GET&#xa;verify repo exists">
+          <mxGeometry relative="1" x="0.1187" y="-2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="api" style="endArrow=block;html=1;" target="resend" value="HTTPS POST&#xa;send confirmation email">
+          <mxGeometry relative="1" x="-0.5889" y="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="scanner" style="endArrow=block;html=1;" target="postgres" value="SQL&lt;br&gt;&lt;div&gt;read repos &amp;amp; subscribers /&amp;nbsp;&lt;/div&gt;&lt;div&gt;update last_seen_tag&lt;/div&gt;">
+          <mxGeometry relative="1" x="0.2501" y="2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="scanner" style="endArrow=block;html=1;" target="github" value="HTTPS GET&#xa;fetch latest release tag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="scanner" style="endArrow=block;html=1;" target="resend" value="HTTPS POST&#xa;send release notification emails">
+          <mxGeometry relative="1" x="0.3225" y="4" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

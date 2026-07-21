@@ -1,0 +1,57 @@
+name: test-e2e
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "e2e/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Start app stack
+        env:
+          # Pass the workflow token into docker-compose so app/notifier make
+          # authenticated GitHub requests. Anonymous 60 req/h is not enough
+          # for e2e — GitHub returns 403 with X-RateLimit-Remaining: 0 well
+          # before the suite finishes, which surfaces as 500 to the client.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker compose -f docker-compose.e2e.yml up -d --build --wait
+
+      - name: Run E2E tests
+        working-directory: e2e
+        env:
+          BASE_URL: "http://localhost:8080"
+          FAKE_RESEND_URL: "http://localhost:3000"
+          CI: "true"
+        run: npx playwright test
+
+      - name: Stop app stack
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7

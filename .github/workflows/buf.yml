@@ -1,0 +1,52 @@
+name: buf
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    name: Buf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: buf lint
+        run: buf lint
+
+  breaking:
+    name: Buf Breaking
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      # Compare the PR head against the target branch on the remote so we
+      # do not have to fetch the full local git history. Uses buf's git-URL
+      # source form; buf discovers the module list via buf.yaml at the repo
+      # root, so no subdir selector is needed.
+      #
+      # If the target branch has no .proto files yet (first PR that
+      # introduces the proto module), buf exits with "had no .proto files".
+      # Treat that as a clean baseline rather than a breaking change so the
+      # bootstrap PR can merge; subsequent PRs get a real diff.
+      - name: buf breaking
+        run: |
+          set +e
+          out=$(buf breaking --against "https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }}" 2>&1)
+          status=$?
+          echo "$out"
+          if [ $status -eq 0 ]; then
+            exit 0
+          fi
+          if echo "$out" | grep -q 'had no .proto files'; then
+            echo "::notice::target branch has no protos yet, skipping breaking check"
+            exit 0
+          fi
+          exit $status

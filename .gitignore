@@ -1,0 +1,18 @@
+# Binaries
+/server
+*.exe
+
+# Environment
+.env
+
+# Go
+vendor/
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+
+# Claude Code
+.claude/

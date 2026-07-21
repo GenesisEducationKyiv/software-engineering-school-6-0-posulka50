@@ -1,0 +1,14 @@
+{{define "content"}}
+  <p style="margin:0 0 8px;font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.08em;font-weight:600;">Confirm subscription</p>
+  <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:#e6edf3;">{{.Repo}}</h1>
+  <p style="margin:0 0 28px;font-size:15px;color:#8b949e;line-height:1.6;">
+    You requested release notifications for <strong style="color:#e6edf3;">{{.Repo}}</strong>.
+    Click the button below to confirm your subscription.
+  </p>
+  <a href="{{.ConfirmURL}}" style="display:inline-block;background:#238636;color:#fff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;border:1px solid #2ea043;">Confirm Subscription</a>
+  <p style="margin:20px 0 0;font-size:12px;color:#484f58;">
+    Or copy this link:<br>
+    <a href="{{.ConfirmURL}}" style="color:#58a6ff;word-break:break-all;">{{.ConfirmURL}}</a>
+  </p>
+{{end}}
+{{define "footer"}}If you didn't request this, you can safely ignore this email.{{end}}
