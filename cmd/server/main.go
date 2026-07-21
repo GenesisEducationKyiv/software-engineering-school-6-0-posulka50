@@ -19,6 +19,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/posul/github-notifier/internal/notifier/adapter/rabbitmq"
 	"github.com/posul/github-notifier/internal/platform/config"
@@ -32,6 +34,7 @@ import (
 	subscriptionrabbitmq "github.com/posul/github-notifier/internal/subscription/adapter/rabbitmq"
 	subscriptionapp "github.com/posul/github-notifier/internal/subscription/app"
 	"github.com/posul/github-notifier/internal/subscription/saga"
+	notifierv1 "github.com/posul/github-notifier/proto/gen/notifier/v1"
 )
 
 func main() {
@@ -72,7 +75,13 @@ func run() error {
 		}
 	}()
 
-	svc := setupServices(dbPool, redisClient, publisher, cfg)
+	notifierClient, closeNotifier, err := dialNotifierGRPC(cfg.NotifierGRPCAddr)
+	if err != nil {
+		return err
+	}
+	defer closeNotifier()
+
+	svc := setupServices(dbPool, redisClient, publisher, notifierClient, cfg)
 
 	repliesConsumer, err := subscriptionrabbitmq.NewRepliesConsumer(cfg.BrokerURL, svc.orchestrator)
 	if err != nil {
@@ -126,6 +135,23 @@ func run() error {
 
 	slog.Info("server stopped")
 	return nil
+}
+
+// dialNotifierGRPC opens the app-side client for the notifier's gRPC endpoint
+// and returns a close function that logs (but does not surface) any close
+// error, matching the deferred pattern in run().
+func dialNotifierGRPC(addr string) (notifierv1.EmailNotifierServiceClient, func(), error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial notifier grpc %s: %w", addr, err)
+	}
+	slog.Info("notifier grpc client ready", "addr", addr)
+	closeFn := func() {
+		if err := conn.Close(); err != nil {
+			slog.Warn("notifier grpc conn close error", "error", err)
+		}
+	}
+	return notifierv1.NewEmailNotifierServiceClient(conn), closeFn, nil
 }
 
 // waitForShutdown blocks until either SIGINT/SIGTERM arrives or the saga
@@ -247,9 +273,10 @@ type appServices struct {
 	scanner      *releaseapp.Scanner
 	orchestrator *saga.Orchestrator
 	sweeper      *saga.TimeoutSweeper
+	retrier      *saga.Retrier
 }
 
-func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, cfg *config.Config) *appServices {
+func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *rabbitmq.Publisher, notifierClient notifierv1.EmailNotifierServiceClient, cfg *config.Config) *appServices {
 	repoRepo := releasepostgres.NewRepoRepository(dbPool)
 	subRepo := subscriptionpostgres.NewSubscriptionRepository(dbPool)
 	sagaRepo := subscriptionpostgres.NewSagaRepository(dbPool)
@@ -263,7 +290,8 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		fetcher = githubclient.NewCachedReleaseFetcher(releaseFetcherClient, redisClient)
 	}
 
-	orchestrator := saga.New(publisher, sagaRepo, subRepo)
+	retrier := saga.NewRetrier(notifierClient)
+	orchestrator := saga.New(publisher, sagaRepo, subRepo, retrier, cfg.BaseURL)
 
 	subscribeUC := subscriptionapp.NewSubscribeUseCase(repoRepo, subRepo, checker, orchestrator, cfg.BaseURL)
 	confirmUC := subscriptionapp.NewConfirmUseCase(subRepo)
@@ -287,7 +315,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		slog.Warn("invalid SAGA_SWEEP_INTERVAL, defaulting to 30s", "value", cfg.SagaSweepInterval)
 		sweepInterval = 30 * time.Second
 	}
-	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, sagaTimeout, sweepInterval)
+	sweeper := saga.NewTimeoutSweeper(sagaRepo, orchestrator, orchestrator, sagaTimeout, sweepInterval)
 
 	return &appServices{
 		subscribe:    subscribeUC,
@@ -297,6 +325,7 @@ func setupServices(dbPool *pgxpool.Pool, redisClient *redis.Client, publisher *r
 		scanner:      scanner,
 		orchestrator: orchestrator,
 		sweeper:      sweeper,
+		retrier:      retrier,
 	}
 }
 

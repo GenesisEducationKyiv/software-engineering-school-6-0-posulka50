@@ -74,6 +74,25 @@ func (r *SubscriptionRepository) CreateWithSaga(ctx context.Context, sub *domain
 	return nil
 }
 
+// GetByID fetches a single subscription by its surrogate id. Used by the
+// saga orchestrator's sync-retry path to rebuild the confirmation URL from
+// a stuck saga's subscription reference.
+func (r *SubscriptionRepository) GetByID(ctx context.Context, id string) (*domain.Subscription, error) {
+	var sub domain.Subscription
+	err := r.db.QueryRow(ctx,
+		`SELECT`+subSelectCols+subFromJoin+`
+		 WHERE s.id = $1`, id,
+	).Scan(&sub.ID, &sub.RepoID, &sub.Repo, &sub.Email, &sub.Confirmed,
+		&sub.ConfirmToken, &sub.UnsubscribeToken, &sub.CreatedAt, &sub.LastSeenTag)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get by id: %w", err)
+	}
+	return &sub, nil
+}
+
 func (r *SubscriptionRepository) GetByConfirmToken(ctx context.Context, token string) (*domain.Subscription, error) {
 	var sub domain.Subscription
 	err := r.db.QueryRow(ctx,

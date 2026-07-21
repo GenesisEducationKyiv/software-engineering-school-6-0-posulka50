@@ -1,8 +1,9 @@
 // Package saga implements the Subscribe orchestrated saga: it owns the
 // distributed transaction that pairs a subscription record (in app's DB) with
 // a confirmation email delivered by the notifier service. The orchestrator
-// persists saga state, dispatches commands over RabbitMQ, and reacts to
-// reply events with success/compensation transitions.
+// persists saga state transitions, dispatches commands over RabbitMQ, reacts
+// to reply events with success/compensation transitions, and exposes a
+// last-chance synchronous retry over gRPC for the TimeoutSweeper.
 package saga
 
 import (
@@ -33,10 +34,19 @@ type sagaStore interface {
 	GetPendingOlderThan(ctx context.Context, threshold time.Time) ([]*domain.Saga, error)
 }
 
-// subStore is the slice of the subscription repository the orchestrator needs
-// for compensation (deleting an orphaned pending subscription).
+// subStore is the slice of the subscription repository the orchestrator needs:
+// Delete for compensation (orphaned pending subscription) and GetByID for the
+// sweeper's sync retry path (needs email + repo + confirm token to rebuild
+// the confirmation URL).
 type subStore interface {
 	Delete(ctx context.Context, id string) error
+	GetByID(ctx context.Context, id string) (*domain.Subscription, error)
+}
+
+// syncRetrier is the gRPC client wrapper used by AttemptSyncRetry. Satisfied
+// by *Retrier; injected as an interface so tests can stub the gRPC call.
+type syncRetrier interface {
+	Retry(ctx context.Context, sagaID, to, repo, confirmURL string) error
 }
 
 // Orchestrator owns the Subscribe saga lifecycle.
@@ -44,19 +54,21 @@ type Orchestrator struct {
 	commands commandPublisher
 	sagas    sagaStore
 	subs     subStore
+	retrier  syncRetrier
+	baseURL  string
 }
 
-func New(commands commandPublisher, sagas sagaStore, subs subStore) *Orchestrator {
-	return &Orchestrator{commands: commands, sagas: sagas, subs: subs}
+func New(commands commandPublisher, sagas sagaStore, subs subStore, retrier syncRetrier, baseURL string) *Orchestrator {
+	return &Orchestrator{commands: commands, sagas: sagas, subs: subs, retrier: retrier, baseURL: baseURL}
 }
 
-// Publish sends the SendConfirmationCommand for a saga row that the caller
-// has already persisted atomically with its subscription (see
-// SubscriptionRepository.CreateWithSaga). On publish failure the orchestrator
-// runs the standard compensation inline (delete subscription, mark
-// compensated); if that inline path itself errors, the saga stays pending
-// and the timeout sweeper finishes the compensation later — so a lost
-// publish never leaves an orphaned subscription behind.
+// Publish dispatches the SendConfirmationCommand for an already-persisted
+// pending saga. The saga row and its subscription are inserted atomically by
+// the use case before this call, so failure only needs to compensate the
+// downstream side: on publish error we drive the compensation inline (delete
+// subscription + mark compensated); if that inline path itself errors, the
+// saga stays pending and the timeout sweeper finishes the compensation later
+// — so a lost publish never leaves an orphaned subscription behind.
 func (o *Orchestrator) Publish(ctx context.Context, sagaID string, sub *domain.Subscription, confirmURL string) error {
 	if err := o.commands.SendConfirmationCommand(ctx, sagaID, sub.Email, sub.Repo, confirmURL); err != nil {
 		reason := "publish_failed: " + err.Error()
@@ -84,9 +96,55 @@ func (o *Orchestrator) HandleSent(ctx context.Context, sagaID string) error {
 	return nil
 }
 
-// HandleFailed runs the compensation: mark the saga compensated and delete
-// the orphaned pending subscription so the user does not see a phantom
-// subscription that can never be confirmed. Idempotent.
+// AttemptSyncRetry is the TimeoutSweeper's last-chance path: before
+// compensating a stuck saga, it calls the notifier directly over gRPC. On a
+// successful RPC the saga is moved to completed (idempotently, via the SQL
+// guard) and the user's subscription is preserved. On any failure the error
+// is returned so the caller can fall through to compensation.
+//
+// Concurrency: an async reply may land between the RPC success and the
+// MarkCompleted write. The SQL guard turns the loser into ErrNotFound, which
+// we treat as a benign no-op rather than a retry failure.
+func (o *Orchestrator) AttemptSyncRetry(ctx context.Context, sagaID string) error {
+	s, err := o.sagas.Get(ctx, sagaID)
+	if err != nil {
+		return fmt.Errorf("get saga: %w", err)
+	}
+	if s.State != domain.SagaStatePending {
+		slog.InfoContext(ctx, "saga: sync retry skipped, saga not pending", "saga_id", sagaID, "state", s.State)
+		return nil
+	}
+
+	sub, err := o.subs.GetByID(ctx, s.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("get subscription: %w", err)
+	}
+
+	confirmURL := fmt.Sprintf("%s/api/confirm/%s", o.baseURL, sub.ConfirmToken)
+	if err := o.retrier.Retry(ctx, sagaID, sub.Email, sub.Repo, confirmURL); err != nil {
+		return fmt.Errorf("sync retry: %w", err)
+	}
+
+	if err := o.sagas.MarkCompleted(ctx, sagaID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			// Raced with an async reply: the saga is already in a terminal
+			// state. The email was sent twice (mitigated by notifier dedupe);
+			// the saga journal is consistent.
+			slog.InfoContext(ctx, "saga: sync retry succeeded but saga already terminal", "saga_id", sagaID)
+			return nil
+		}
+		return fmt.Errorf("mark saga completed: %w", err)
+	}
+	slog.InfoContext(ctx, "saga: rescued via sync retry", "saga_id", sagaID, "subscription_id", sub.ID)
+	return nil
+}
+
+// HandleFailed runs the compensation: delete the orphaned pending subscription
+// and mark the saga compensated. Deletes first so that a partial success
+// (delete OK, mark fails) is safely retried by the broker/sweeper: the saga
+// stays pending and the whole compensation runs again; Delete treats
+// ErrNotFound as success, so a retry after a partial success is a no-op.
+// Idempotent.
 func (o *Orchestrator) HandleFailed(ctx context.Context, sagaID, reason string) error {
 	s, err := o.sagas.Get(ctx, sagaID)
 	if err != nil {
@@ -101,11 +159,6 @@ func (o *Orchestrator) HandleFailed(ctx context.Context, sagaID, reason string) 
 		return nil
 	}
 
-	// Delete first, then mark compensated. If Delete fails and this method
-	// returns an error, the broker redelivers the reply and the saga is still
-	// pending, so the whole compensation runs again — a stuck subscription
-	// row cannot outlive the delivery. Delete already treats ErrNotFound as
-	// success, so a retry after a partial success is a safe no-op.
 	if err := o.subs.Delete(ctx, s.SubscriptionID); err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("compensate delete subscription: %w", err)
 	}

@@ -49,6 +49,7 @@ services:
         TARGET: notifier
     environment:
       PORT: "8081"
+      NOTIFIER_GRPC_PORT: "50051"
       RESEND_API_KEY: fake-key
       EMAIL_FROM: test@example.com
       RESEND_API_URL: http://fake-resend:3000
@@ -77,6 +78,7 @@ services:
       REDIS_URL: redis://redis:6379
       BASE_URL: http://localhost:8080
       BROKER_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFIER_GRPC_ADDR: notifier:50051
       SCAN_INTERVAL: 24h
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GIN_MODE: release

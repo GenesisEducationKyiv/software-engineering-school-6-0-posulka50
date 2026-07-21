@@ -29,12 +29,22 @@ type ReplyPublisher interface {
 	PublishConfirmationFailed(ctx context.Context, sagaID, reason string) error
 }
 
+// Marker records that a saga's confirmation email has been delivered, so a
+// later synchronous gRPC retry for the same saga can be short-circuited by
+// the notifier's Dedupe and avoid a duplicate email. Satisfied by
+// *grpcsrv.Dedupe via structural typing; can be nil in tests or when the
+// gRPC path is not wired.
+type Marker interface {
+	Mark(sagaID string)
+}
+
 // Consumer subscribes to the notifier's queues and dispatches messages to the
 // underlying Sender. Saga commands additionally trigger reply events via
-// ReplyPublisher. Permanent errors on legacy routes nack(requeue=false) into
-// the dead-letter exchange; saga commands ack after the reply is published
-// (success or failure), so the saga orchestrator owns the retry/timeout
-// decision instead of the broker.
+// ReplyPublisher and record the saga in Marker for cross-path dedupe.
+// Permanent errors on legacy routes nack(requeue=false) into the dead-letter
+// exchange; saga commands ack after the reply is published (success or
+// failure), so the saga orchestrator owns the retry/timeout decision instead
+// of the broker.
 //
 // Run drives a supervisor loop: when the connection or any delivery channel
 // closes unexpectedly, the consumer re-dials with exponential backoff and
@@ -44,6 +54,7 @@ type Consumer struct {
 	url          string
 	sender       Sender
 	replies      ReplyPublisher
+	marker       Marker
 	consumerName string
 
 	conn *amqp.Connection
@@ -67,11 +78,12 @@ const (
 
 var errSessionEnded = errors.New("rabbitmq consumer session ended")
 
-func NewConsumer(amqpURL string, sender Sender, replies ReplyPublisher) (*Consumer, error) {
+func NewConsumer(amqpURL string, sender Sender, replies ReplyPublisher, marker Marker) (*Consumer, error) {
 	c := &Consumer{
 		url:          amqpURL,
 		sender:       sender,
 		replies:      replies,
+		marker:       marker,
 		consumerName: "notifier",
 	}
 	if err := c.dial(); err != nil {
@@ -284,6 +296,11 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery) string {
 		// delivered.
 		var replyErr error
 		if sendErr == nil {
+			// Mark BEFORE publishing the reply so a lost reply event does
+			// not leave the sweeper's gRPC retry blind to the prior delivery.
+			if c.marker != nil {
+				c.marker.Mark(msg.SagaID)
+			}
 			replyErr = publishReplyWithRetry(ctx, func(ctx context.Context) error {
 				return c.replies.PublishConfirmationSent(ctx, msg.SagaID)
 			})

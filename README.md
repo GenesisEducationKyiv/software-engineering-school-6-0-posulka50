@@ -23,9 +23,14 @@ participant) and is implemented as an orchestrated saga over RabbitMQ:
    failure the orchestrator **compensates** by deleting the orphaned pending
    subscription so a retry succeeds rather than colliding with a row the user
    can never confirm.
-4. A timeout sweeper (`SAGA_TIMEOUT`, default `5m`) compensates any saga left
-   in `pending` long enough to count as a lost reply, so a notifier crash
-   between Resend and the reply publish does not strand subscriptions.
+4. A timeout sweeper (`SAGA_TIMEOUT`, default `5m`) catches any saga left in
+   `pending` long enough to count as a lost reply. Before compensating it
+   first attempts one **synchronous gRPC retry** against
+   `notifier.EmailNotifierService.SendConfirmation` (see ADR-003). On RPC
+   success the saga is marked `completed` and the subscription is preserved;
+   on failure the sweeper falls through to compensation. The notifier
+   deduplicates by saga id in memory, so a retry that races the original
+   async delivery does not send a second email.
 
 Saga state lives in the `subscription_sagas` table and is independent of the
 domain row; reply handlers are idempotent (`WHERE state='pending'` guard), so
@@ -133,8 +138,10 @@ go run ./cmd/server
 | `SCAN_INTERVAL` | `1h` | Release polling interval (e.g. `10m`, `6h`) |
 | `API_KEY` | _(empty)_ | When set, write and list endpoints require `X-API-Key` header |
 | `BROKER_URL` | `amqp://guest:guest@localhost:5672/` | RabbitMQ connection string between app and notifier |
-| `SAGA_TIMEOUT` | `5m` | How long a Subscribe saga may stay `pending` before the sweeper compensates it |
+| `SAGA_TIMEOUT` | `5m` | How long a Subscribe saga may stay `pending` before the sweeper acts |
 | `SAGA_SWEEP_INTERVAL` | `30s` | How often the sweeper scans for stuck sagas |
+| `NOTIFIER_GRPC_ADDR` | `localhost:50051` | App-side address of the notifier's gRPC listener (sweeper sync-retry target) |
+| `NOTIFIER_GRPC_PORT` | `50051` | Notifier-side listen port for the gRPC server |
 
 ---
 
@@ -154,6 +161,41 @@ Unit tests cover the full service layer (subscription logic + scanner) via in-me
 
 Run automatically on startup via [golang-migrate](https://github.com/golang-migrate/migrate).
 Files in `migrations/` follow `{version}_{title}.{up|down}.sql` naming convention.
+
+---
+
+## gRPC contract (buf)
+
+The `app -> notifier` Subscribe-saga sync-retry call has a gRPC contract
+defined in
+[`proto/notifier/v1/notification.proto`](proto/notifier/v1/notification.proto)
+and managed with [buf](https://buf.build). Generated Go code is committed to
+`proto/gen/` so the repository builds without buf installed.
+
+**Wiring.** The notifier exposes
+`EmailNotifierService.SendConfirmation` on `NOTIFIER_GRPC_PORT`
+(default `50051`) alongside its RabbitMQ consumer; both share an in-memory
+dedupe cache keyed by `saga_id` so a sync retry that races the original
+async delivery does not produce a duplicate email. The app dials
+`NOTIFIER_GRPC_ADDR` on startup and uses the resulting client from the
+`TimeoutSweeper` last-chance retry path (see ADR-003).
+
+Install the proto tooling once:
+
+```bash
+make proto-tools
+# or manually:
+go install github.com/bufbuild/buf/cmd/buf@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+Lint and regenerate:
+
+```bash
+make proto-lint   # buf lint
+make proto-gen    # buf generate -> proto/gen/...
+```
 
 ---
 

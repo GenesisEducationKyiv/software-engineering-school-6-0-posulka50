@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -85,10 +86,17 @@ func (s *Sender) send(ctx context.Context, to, subject, htmlBody string) error {
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("send resend request: %w", err)
+		// Network / context-deadline failures are transient upstream problems.
+		// Wrap so gRPC callers can surface codes.Unavailable /
+		// codes.DeadlineExceeded (context.DeadlineExceeded stays reachable
+		// through the joined chain).
+		return fmt.Errorf("send resend request: %w", errors.Join(err, domain.ErrUpstreamUnavailable))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("resend returned status %d: %w", resp.StatusCode, domain.ErrUpstreamUnavailable)
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("resend returned status %d", resp.StatusCode)
 	}
